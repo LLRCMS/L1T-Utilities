@@ -1,10 +1,10 @@
 # Installation and setup
-This has been tested on LLR machines (polui, llrui)
+This has been tested on LLR machines (polui, llrui)  
 
 ## Initial install
-`git clone git@github.com:LLRCMS/L1T-Utilities.git`
-`cd L1T-Utilities`
-`source initialize`
+`git clone git@github.com:LLRCMS/L1T-Utilities.git`  
+`cd L1T-Utilities`  
+`source initialize`  
 
 This last command will:
 * initialize a CMSSW area in `./CMSSW/`
@@ -17,8 +17,8 @@ This last command will:
   * `rootpy`
 
 ## Environment setup
-`source setupenv`
-It will setup the CMSSW environment and activate the python virtual environment
+`source setupenv`  
+It will setup the CMSSW environment and activate the python virtual environment  
 
 # Available utilities
 ## `identification_isolation`
