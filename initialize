@@ -1,0 +1,18 @@
+export SCRAM_ARCH=slc6_amd64_gcc530
+mkdir CMSSW
+cd CMSSW
+cmsrel CMSSW_8_0_8 
+cd CMSSW_8_0_8/src
+cmsenv
+cd ../../..
+wget https://bootstrap.pypa.io/get-pip.py
+python get-pip.py --user
+rm get-pip.py
+pip2.7 install --user virtualenv
+virtualenv env
+source activate
+pip install --upgrade scipy
+pip install numpy
+pip install sklearn
+pip install root_numpy
+pip install rootpy
