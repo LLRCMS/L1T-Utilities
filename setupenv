@@ -1,0 +1,4 @@
+cd CMSSW/CMSSW_8_0_8/src/
+cmsenv
+cd -
+source activate

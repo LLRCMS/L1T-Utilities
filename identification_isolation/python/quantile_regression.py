@@ -61,22 +61,23 @@ def store(regressor, name, inputs, outputfile):
 
 def main():
     import optparse
-    usage = 'usage: %prog [options]'
+    usage = 'usage: python %prog [options]'
     parser = optparse.OptionParser(usage)
     parser.add_option('--inputfile', dest='input_file', help='Input file', default='tree.root')
-    parser.add_option('--tree', dest='tree_name', help='Tree in input file', default='tree')
-    parser.add_option('--inputs', dest='inputs', help='List of input variables "var1,var2,..."', default='x,y')
+    parser.add_option('--tree', dest='tree_name', help='Tree in the input file', default='tree')
+    parser.add_option('--inputs', dest='inputs', help='List of input variables of the form "var1,var2,..."', default='x,y')
     parser.add_option('--target', dest='target', help='Target variable', default='target')
+    parser.add_option('--eff', dest='eff', help='Efficiency working point', type='float', default=0.9)
     parser.add_option('--outputfile', dest='output_file', help='Output file', default='results.root')
     parser.add_option('--name', dest='name', help='Name used to store the regression results in the output file', default='regression')
-    parser.add_option('--test', action="store_true", dest='test', help='Test regression on a test sample', default=False)
+    parser.add_option('--test', action="store_true", dest='test', help='Flag to test regression on a test sample', default=False)
     (opt, args) = parser.parse_args()
     #input_file = '/data_CMS/cms/sauvan/L1/2016/IsolationValidation/ZElectron/v_3_2016-06-23/tagAndProbe_isolationValidation_2016B_ZElectron.root'
     #tree_name = 'ntTagAndProbe_IsolationValidation_Stage2_Rebuilt_tree'
     #inputs = ['abs(ieta)', 'rho']
     #target = 'iso'
     inputs = opt.inputs.replace(' ','').split(',')
-    regressor = fit(filename=opt.input_file, treename=opt.tree_name, inputsname=inputs, targetname=opt.target, test=opt.test)
+    regressor = fit(filename=opt.input_file, treename=opt.tree_name, inputsname=inputs, targetname=opt.target, workingpoint=opt.eff, test=opt.test)
     with root_open(opt.output_file, 'recreate') as output_file:
         store(regressor=regressor, name=opt.name, inputs=inputs, outputfile=output_file)
 

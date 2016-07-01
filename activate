@@ -1,0 +1,2 @@
+source ./env/bin/activate
+export PYTHONPATH=$PWD/env/lib/python2.7/site-packages/:$PYTHONPATH
