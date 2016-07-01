@@ -8,7 +8,7 @@ This has been tested on LLR machines (polui, llrui)
 
 This last command will:
 * initialize a CMSSW area in `./CMSSW/`
-* Install python `pip` utility in ~/.local/
+* Install python `pip` utility in `~/.local/`
 * Install and intialize a python virtual environment (`virtualenv`) in `./env/`
 * Install needed python dependencies
   * `SciPy` and `NumPy`
