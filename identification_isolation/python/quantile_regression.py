@@ -1,10 +1,12 @@
 import copy
+import os
 
 import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.externals import joblib
 from sklearn import cross_validation
 
-from rootpy.plotting import Hist2D
+from rootpy.plotting import Hist2D, Hist3D
 from rootpy.io import root_open
 from root_numpy import root2array
 
@@ -13,6 +15,7 @@ from root_numpy import root2array
 # Predefined binning to store regression results
 binning = {}
 binning['abs(ieta)'] = (30, 0.5, 30.5)
+binning['et'] = (400, 0.5, 400.5)
 binning['rho'] = (500, 0., 50)
 
 def fit(filename, treename, inputsname, targetname, workingpoint=0.9, test=False):
@@ -45,16 +48,38 @@ def fit(filename, treename, inputsname, targetname, workingpoint=0.9, test=False
     return regressor
 
 def store(regressor, name, inputs, outputfile):
-    if len(inputs)!=2:
-        raise StandardError('Can only store regression result into a 2D histogram for the moment')
-    histo = Hist2D(*(binning[inputs[0]]+binning[inputs[1]]), name=name)
-    histo.SetXTitle(inputs[0])
-    histo.SetYTitle(inputs[1])
-    for bx in histo.bins_range(0):
-        x = histo.GetXaxis().GetBinCenter(bx)
-        for by in histo.bins_range(1):
-            y = histo.GetYaxis().GetBinCenter(by)
-            histo[bx,by].value = regressor.predict([[x,y]])
+    # Save scikit-learn regression object  
+    result_dir = outputfile.GetName().replace('.root','')
+    if not os.path.exists(result_dir): os.mkdir(result_dir)
+    joblib.dump(regressor, result_dir+'/'+name) 
+    # Save result in ROOT histograms if possible
+    if len(inputs)!=2 and len(inputs)!=3:
+        print 'The regression result will not be stored in a ROOT histogram. Only 2D or 3D histograms can be stored for the moment.'
+        return
+    for input in inputs:
+        if not input in binning:
+            print 'Binning is not defined for variable '+input+'. Please add it in quantile_regression.binning if you want to store results in histograms'
+    if len(inputs)==2:
+        histo = Hist2D(*(binning[inputs[0]]+binning[inputs[1]]), name=name)
+        histo.SetXTitle(inputs[0])
+        histo.SetYTitle(inputs[1])
+        for bx in histo.bins_range(0):
+            x = histo.GetXaxis().GetBinCenter(bx)
+            for by in histo.bins_range(1):
+                y = histo.GetYaxis().GetBinCenter(by)
+                histo[bx,by].value = regressor.predict([[x,y]])
+    elif len(inputs)==3:
+        histo = Hist3D(*(binning[inputs[0]]+binning[inputs[1]]+binning[inputs[2]]), name=name)
+        histo.SetXTitle(inputs[0])
+        histo.SetYTitle(inputs[1])
+        histo.SetZTitle(inputs[2])
+        for bx in histo.bins_range(0):
+            x = histo.GetXaxis().GetBinCenter(bx)
+            for by in histo.bins_range(1):
+                y = histo.GetYaxis().GetBinCenter(by)
+                for bz in histo.bins_range(2):
+                    z = histo.GetZaxis().GetBinCenter(bz)
+                    histo[bx,by,bz].value = regressor.predict([[x,y,z]])
     outputfile.cd()
     histo.Write()
 
@@ -78,6 +103,7 @@ def main():
     #target = 'iso'
     inputs = opt.inputs.replace(' ','').split(',')
     regressor = fit(filename=opt.input_file, treename=opt.tree_name, inputsname=inputs, targetname=opt.target, workingpoint=opt.eff, test=opt.test)
+    if os.path.splitext(opt.output_file)[1]!='.root': opt.output_file += '.root'
     with root_open(opt.output_file, 'recreate') as output_file:
         store(regressor=regressor, name=opt.name, inputs=inputs, outputfile=output_file)
 

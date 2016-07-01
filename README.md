@@ -4,6 +4,8 @@ This has been tested on LLR machines (polui, llrui)
 ## Initial install
 `git clone git@github.com:LLRCMS/L1T-Utilities.git`  
 `cd L1T-Utilities`  
+`git remote add llrcms git@github.com:LLRCMS/L1T-Utilities.git`  
+`git checkout -b <my-devel-branch>`  
 `source initialize`  
 
 This last command will:
@@ -38,5 +40,6 @@ Options:
   --name=NAME               Name used to store the regression results in the output file
   --test                    Flag to test the regression on a test sample
 ```
+If two or three input variables are used the regression result will be stored inside a 2D or 3D histogram in the output file. In addition the scikit-learn object will be stored in a pickle file.
 
 
