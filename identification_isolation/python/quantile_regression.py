@@ -59,6 +59,7 @@ def store(regressor, name, inputs, outputfile):
     for input in inputs:
         if not input in binning:
             print 'Binning is not defined for variable '+input+'. Please add it in quantile_regression.binning if you want to store results in histograms'
+            return
     if len(inputs)==2:
         histo = Hist2D(*(binning[inputs[0]]+binning[inputs[1]]), name=name)
         histo.SetXTitle(inputs[0])
@@ -84,7 +85,14 @@ def store(regressor, name, inputs, outputfile):
     histo.Write()
 
 
-def main():
+def main(inputfile, tree, inputs, target, outputfile, name, eff=0.9, test=False):
+    regressor = fit(filename=inputfile, treename=tree, inputsname=inputs, targetname=target, workingpoint=eff, test=test)
+    if os.path.splitext(outputfile)[1]!='.root': outputfile += '.root'
+    with root_open(outputfile, 'recreate') as output_file:
+        store(regressor=regressor, name=name, inputs=inputs, outputfile=output_file)
+
+
+if __name__=='__main__':
     import optparse
     usage = 'usage: python %prog [options]'
     parser = optparse.OptionParser(usage)
@@ -102,14 +110,7 @@ def main():
     #inputs = ['abs(ieta)', 'rho']
     #target = 'iso'
     inputs = opt.inputs.replace(' ','').split(',')
-    regressor = fit(filename=opt.input_file, treename=opt.tree_name, inputsname=inputs, targetname=opt.target, workingpoint=opt.eff, test=opt.test)
-    if os.path.splitext(opt.output_file)[1]!='.root': opt.output_file += '.root'
-    with root_open(opt.output_file, 'recreate') as output_file:
-        store(regressor=regressor, name=opt.name, inputs=inputs, outputfile=output_file)
-
-
-if __name__=='__main__':
-    main()
+    main(inputfile=opt.input_file, tree=opt.tree_name, inputs=inputs, target=opt.target, outputfile=opt.output_file, name=opt.name, eff=opt.eff, test=opt.test)
 
 
 
