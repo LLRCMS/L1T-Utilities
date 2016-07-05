@@ -23,6 +23,29 @@ This last command will:
 It will setup the CMSSW environment and activate the python virtual environment  
 
 # Available utilities
+## `batch`
+A script used to send jobs on the LLR t3 is available (`python/batch_launcher.py`). It is used in the following way:
+```
+Usage: python batch_launcher.py [options]
+
+Options:
+  -h, --help               show this help message and exit
+  --workingdir=WORKING_DIR Working directory, where the jobs will be run. It will be created if it
+                           doesn't exist
+  --exe=EXECUTABLE         Executable (e.g. "python quantile_regression.py")
+  --pars=PARAMETER_FILE    Python file containing the list of parameters
+Optional options:
+  --name=NAME              Name of the batch jobs
+  --queue=QUEUE            Batch queue
+  --proxy=PROXY            Grid user proxy
+```
+This command needs to be launched from the directory where the python parameter file is. Otherwise it won't be able to import the parameters.   
+
+The parameter file is a python file that must contain a variable `parameters`, which must be a list of dictionaries. Each item in the list corresponds to one job, and the dictionary contains the set of parameters to pass to the executable for this job. There is an exemple in `identification_isolation/config/test_iso_batch.py`.   
+
+The jobs have a version attached to them, which is automatically computed. When jobs are sent in a given `workingdir`, a version number will be associated to them and a subdirectory will be created such that they don't interfere with the previous results produced in the same `workingdir`.
+
+
 ## `identification_isolation`
 ### `python/quantile_regression`
 This script computes cuts to be applied on a target variable, function of several input variables. These cuts are determined such that they give a flat efficiency as a function of the input variables.  
