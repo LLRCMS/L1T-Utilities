@@ -1,3 +1,5 @@
+from object_conversions.conversion_to_histo import function2th2
+
 import copy
 import os
 
@@ -52,7 +54,7 @@ def store(regressor, name, inputs, outputfile):
     # Save scikit-learn regression object  
     result_dir = outputfile.GetName().replace('.root','')
     if not os.path.exists(result_dir): os.mkdir(result_dir)
-    joblib.dump(regressor, result_dir+'/'+name) 
+    joblib.dump(regressor, result_dir+'/'+name+'.pkl') 
     # Save result in ROOT histograms if possible
     if len(inputs)!=2 and len(inputs)!=3:
         print 'The regression result will not be stored in a ROOT histogram. Only 2D or 3D histograms can be stored for the moment.'
@@ -62,14 +64,7 @@ def store(regressor, name, inputs, outputfile):
             print 'Binning is not defined for variable '+input+'. Please add it in quantile_regression.binning if you want to store results in histograms'
             return
     if len(inputs)==2:
-        histo = Hist2D(*(binning[inputs[0]]+binning[inputs[1]]), name=name)
-        histo.SetXTitle(inputs[0])
-        histo.SetYTitle(inputs[1])
-        for bx in histo.bins_range(0):
-            x = histo.GetXaxis().GetBinCenter(bx)
-            for by in histo.bins_range(1):
-                y = histo.GetYaxis().GetBinCenter(by)
-                histo[bx,by].value = regressor.predict([[x,y]])
+        histo = function2th2(regressor.predict, binning[inputs[0]], binning[inputs[1]])
     elif len(inputs)==3:
         histo = Hist3D(*(binning[inputs[0]]+binning[inputs[1]]+binning[inputs[2]]), name=name)
         histo.SetXTitle(inputs[0])

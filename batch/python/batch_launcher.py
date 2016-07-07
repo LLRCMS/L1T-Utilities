@@ -2,6 +2,8 @@ from datetime import date
 import os
 import sys
 import subprocess
+import time
+import glob
 
 
 def job_version(directory):
@@ -15,7 +17,17 @@ def job_version(directory):
         version_date = "v_"+str(version_max+1)+"_"+str(date.today())
     return version_date
 
-def prepare_jobs(working_dir, exe, pars, name='batch', queue='cms', proxy='~/.t3/proxy.cert'):
+def wait_jobs(directory, wait=15):
+    jobnames = [os.path.splitext(os.path.basename(f))[0] for f in glob.glob(directory+'/jobs/*.sub')]
+    while True:
+        time.sleep(wait)
+        done = True
+        for job in jobnames:
+            if not os.path.exists(directory+'/{}.done'.format(job)): done = False
+        if done: break
+
+
+def prepare_jobs(working_dir, exe, pars, name='batch'):
     # Create working area
     if not os.path.isdir(working_dir): os.makedirs(working_dir)
     # Create one subdirectory for each version
@@ -43,10 +55,15 @@ def prepare_jobs(working_dir, exe, pars, name='batch', queue='cms', proxy='~/.t3
             print >>script, 'export PYTHONPATH=$PWD/env/lib/python2.7/site-packages/:$PYTHONPATH'
             print >>script, 'cd', working_dir+'/'+version
             print >>script, exe, ' '.join(par_list), '&>', log_dir+'/'+name+'_{}.log'.format(i)
+            print >>script, 'touch', name+'_{}.done'.format(i)
+    time.sleep(1)
     return working_dir+'/'+version
 
 
+
 def launch_jobs(working_dir, pars, name='batch', queue='cms', proxy='~/.t3/proxy.cert'):
+    print 'Sending {0} jobs on {1}'.format(len(pars), queue+'@llrt3')
+    print '==============='
     for i,par in enumerate(pars):
         qsub_args = []
         qsub_args.append('-k')
@@ -60,12 +77,13 @@ def launch_jobs(working_dir, pars, name='batch', queue='cms', proxy='~/.t3/proxy
         qsub_args.append('-V')
         qsub_args.append(working_dir+'/jobs/'+name+'_{}.sub'.format(i))
         command = ['qsub'] + qsub_args
-        print ' '.join(command)
+        #print ' '.join(command)
         subprocess.call(command)
+    print '==============='
 
 
 def main(workingdir, exe, pars, name='batch', queue='cms', proxy='~/.t3/proxy.cert'):
-    version_dir = prepare_jobs(working_dir=workingdir, exe=exe, pars=pars, name=name, queue=queue, proxy=proxy)
+    version_dir = prepare_jobs(working_dir=workingdir, exe=exe, pars=pars, name=name)
     launch_jobs(working_dir=version_dir, pars=pars, name=name, queue=queue, proxy=proxy)
 
 
