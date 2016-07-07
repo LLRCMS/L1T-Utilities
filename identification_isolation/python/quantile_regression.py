@@ -17,6 +17,7 @@ binning = {}
 binning['abs(ieta)'] = (30, 0.5, 30.5)
 binning['et'] = (400, 0.5, 400.5)
 binning['rho'] = (500, 0., 50)
+binning['ntt'] = (81, -0.5, 80.5)
 
 def fit(filename, treename, inputsname, targetname, workingpoint=0.9, test=False):
     # Reading inputs and targets
@@ -90,6 +91,7 @@ def main(inputfile, tree, inputs, target, outputfile, name, eff=0.9, test=False)
     if os.path.splitext(outputfile)[1]!='.root': outputfile += '.root'
     with root_open(outputfile, 'recreate') as output_file:
         store(regressor=regressor, name=name, inputs=inputs, outputfile=output_file)
+    return regressor
 
 
 if __name__=='__main__':
