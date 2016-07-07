@@ -2,11 +2,13 @@
 This has been tested on LLR machines (polui, llrui)  
 
 ## Initial install
-`git clone git@github.com:LLRCMS/L1T-Utilities.git`  
-`cd L1T-Utilities`  
-`git remote add llrcms git@github.com:LLRCMS/L1T-Utilities.git`  
-`git checkout -b <my-devel-branch>`  
-`source initialize`  
+```
+git clone git@github.com:LLRCMS/L1T-Utilities.git
+cd L1T-Utilities 
+git remote add llrcms git@github.com:LLRCMS/L1T-Utilities.git
+git checkout -b <my-devel-branch>
+source initialize 
+```
 
 This last command will:
 * initialize a CMSSW area in `./CMSSW/`
@@ -65,4 +67,24 @@ Options:
 ```
 If two or three input variables are used the regression result will be stored inside a 2D or 3D histogram in the output file. In addition the scikit-learn object will be stored in a pickle file.
 
+### `python/egamma_isolation`
+This script runs all the steps needed for the egamma isolation:
+* Perform a linear regression of `ntt` vs `rho`
+* Train multiple quantile regressions to derive isolation cuts for several efficiency working points. These cuts are derived as a function of `|ieta|` and `rho`. The trainings will be launched on batch.
+* Apply the `ntt` to `rho` mapping to the isolation regression and save results as 2D histograms (`|ieta|`, `ntt`) for all the working points.   
+
+```
+Usage: python egamma_isolation.py [options]
+
+Options:
+  -h, --help              show this help message and exit
+  --inputfile=INPUT_FILE  Input file
+  --tree=TREE_NAME        Tree in the input file
+  --outputdir=OUTPUT_DIR  Output directory
+  --name=NAME             Name used for the results
+  --test                  Flag to test regression on a test sample
+  --inputs=INPUTS         List of input variables of the form "var1,var2,..."
+  --pileupref=PILEUP_REF  Reference variable used for pile-up
+  --target=TARGET         Target variable
+```
 
