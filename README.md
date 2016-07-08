@@ -67,6 +67,21 @@ Options:
 ```
 If two or three input variables are used the regression result will be stored inside a 2D or 3D histogram in the output file. In addition the scikit-learn object will be stored in a pickle file.
 
+### `python/correlations`
+Currently this module provides only a linear regression beween two variables, used to correlate two pile-up variables (such as `ntt` and `rho`).
+
+```
+Usage: python correlations.py [options]
+
+Options:
+  -h, --help              show this help message and exit
+  --inputfile=INPUT_FILE  Input file
+  --tree=TREE_NAME        Tree in the input file
+  --input=INPUT           Input variable
+  --target=TARGET         Target variable
+  --test                  Flag to test regression on a test sample
+```
+
 ### `python/egamma_isolation`
 This script runs all the steps needed for the egamma isolation:
 * Perform a linear regression of `ntt` vs `rho`

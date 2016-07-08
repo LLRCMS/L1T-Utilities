@@ -34,7 +34,7 @@ def fit_linear(filename, treename, inputname, targetname, test=False):
     return regressor
 
 
-def main(inputfile, tree, input, target, outputfile, name, test=False):
+def main(inputfile, tree, input, target, test=False):
     regressor = fit_linear(filename=inputfile, treename=tree, inputname=input, targetname=target, test=test)
     #if os.path.splitext(outputfile)[1]!='.root': outputfile += '.root'
     #with root_open(outputfile, 'recreate') as output_file:
@@ -49,8 +49,8 @@ if __name__=='__main__':
     parser.add_option('--tree', dest='tree_name', help='Tree in the input file', default='tree')
     parser.add_option('--input', dest='input', help='Input variable', default='x')
     parser.add_option('--target', dest='target', help='Target variable', default='target')
-    parser.add_option('--outputfile', dest='output_file', help='Output file', default='results.root')
-    parser.add_option('--name', dest='name', help='Name used to store the regression results in the output file', default='regression')
+    #parser.add_option('--outputfile', dest='output_file', help='Output file', default='results.root')
+    #parser.add_option('--name', dest='name', help='Name used to store the regression results in the output file', default='regression')
     parser.add_option('--test', action="store_true", dest='test', help='Flag to test regression on a test sample', default=False)
     (opt, args) = parser.parse_args()
-    main(inputfile=opt.input_file, tree=opt.tree_name, input=opt.input, target=opt.target, outputfile=opt.output_file, name=opt.name, test=opt.test)
+    main(inputfile=opt.input_file, tree=opt.tree_name, input=opt.input, target=opt.target, test=opt.test)

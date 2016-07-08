@@ -53,7 +53,8 @@ def iso_parameters(inputfile, tree, name, inputs, target, effs, test):
 
 
 def main(inputfile, tree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'], target='iso', pileupref='rho'):
-    effs = [0.7,0.8,0.9]
+    # Compute isolation cuts for efficiencies from 0 to 1 with steps of 2%
+    effs = np.arange(0.,1.,0.02)
     print '> Deriving {0}->{1} map'.format(pileupref, inputs[1])
     pu_regression = correlations.fit_linear(inputfile, tree, pileupref, inputs[1], test=False)
     print '> Deriving isolation working point'
