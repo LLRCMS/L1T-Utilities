@@ -3,3 +3,4 @@ cmsenv
 cd -
 source activate
 export L1TSTUDIES_BASE=$PWD
+./pysetup

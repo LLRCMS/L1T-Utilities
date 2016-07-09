@@ -1,0 +1,20 @@
+#! /usr/bin/env python
+
+import os
+import glob
+
+python_path = './env/lib/python2.7/site-packages/'
+python_dirs = glob.glob('*/python/')
+module_names = map(lambda x: str.replace(x, '/python/', ''), python_dirs)
+link_paths = [python_path+module for module in module_names]
+for link_path,python_dir in zip(link_paths,python_dirs):
+    # If broken symbolic link, remove it
+    if os.path.lexists(link_path) and not os.path.exists(link_path):
+        os.remove(link_path)
+    # Create links to local python modules
+    if not os.path.lexists(link_path):
+        os.symlink('../../../../'+python_dir, link_path)
+
+
+
+
