@@ -82,6 +82,18 @@ Options:
   --test                  Flag to test regression on a test sample
 ```
 
+### `python/efficiency`
+`efficiency_graph` produces a 1D efficiency graph from a selection function.
+```
+Parameters:
+	pass_function: function used to select events. Must be able to take arrays as inputs
+    function_inputs: inputs given to the function
+    xs: values of the variable of interest, used to fill the histograms
+    bins: histogram binning. If no binning is given, it will be computed automatically
+    error: target uncertainty on the efficiciency, used to determine the automatic binning
+```
+
+
 ### `python/egamma_isolation`
 This script runs all the steps needed for the egamma isolation:
 * Perform a linear regression of `ntt` vs `rho`
