@@ -1,6 +1,6 @@
 from object_conversions.conversion_to_histo import function2th2
-from identification_isolation import quantile_regression, correlations
 from batch import batch_launcher
+from identification_isolation import quantile_regression, correlations, efficiency
 
 import copy
 import os
@@ -8,14 +8,15 @@ import os
 import numpy as np
 from sklearn.externals import joblib
 
-# Always import ROOT related stuff after everything else
 from rootpy.plotting import Hist2D
 from rootpy.io import root_open
+from root_numpy import root2array
 
 
 # Compound of multivariate isolation cuts and input mappings
 class isolation_cuts:
-    def __init__(self, iso_regression, input_mappings):
+    def __init__(self, iso_regression, input_mappings, name='isolation'):
+        self.name = name
         self.iso_regression = iso_regression
         # dictionary input index -> function to be applied on inputs
         self.input_mappings = input_mappings
@@ -51,13 +52,34 @@ def iso_parameters(inputfile, tree, name, inputs, target, effs, test):
     return parameters
 
 
+def test_efficiencies(isolations, inputfile, tree, inputnames, targetname, variables):
+    # Retrieve data from tree
+    ninputs = len(inputnames)
+    branches = copy.deepcopy(inputnames)
+    branches.append(targetname)
+    branches.extend(variables)
+    data = root2array(inputfile, treename=tree, branches=branches)
+    data = data.view((np.float64, len(data.dtype.names)))
+    inputs = data[:, range(ninputs)].astype(np.float32)
+    targets  = data[:, [ninputs]].astype(np.float32).ravel()
+    graphs = []
+    # Compute efficiencies for each working point and each variable
+    for isolation in isolations:
+        for i,variable in enumerate(variables):
+            xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
+            graphs.append(efficiency.efficiency_graph(pass_function=(lambda x:np.less(x[1],isolation.predict(x[0]))), function_inputs=(inputs,targets), xs=xs))
+            graphs[-1].SetName(isolation.name+'_'+variable)
+    return graphs
 
 def main(inputfile, tree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'], target='iso', pileupref='rho'):
-    # Compute isolation cuts for efficiencies from 0 to 1 with steps of 2%
-    effs = np.arange(0.,1.,0.02)
+    # Compute isolation cuts for efficiencies from 0.2 to 1 with smaller steps for larger efficiencies
+    effs = np.arange(0.2,0.5,0.05)
+    effs = np.concatenate((effs,np.arange(0.5,0.85,0.02)))
+    effs = np.concatenate((effs,np.arange(0.85,0.999,0.01)))
+    #effs = np.arange(0.6,1.,0.1)
     print '> Deriving {0}->{1} map'.format(pileupref, inputs[1])
     pu_regression = correlations.fit_linear(inputfile, tree, pileupref, inputs[1], test=False)
-    print '> Deriving isolation working point'
+    print '> Deriving isolation working points'
     version = batch_launcher.job_version(outputdir)
     workingdir = outputdir+'/'+version
     # Replacing L1 pile-up variable (ntt) with the reference pile-up variable (rho)
@@ -72,6 +94,7 @@ def main(inputfile, tree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'
     print '  ... Batch jobs done'
     print '> Applying {0}->{1} map'.format(pileupref, inputs[1])
     with root_open(workingdir+'/'+name+'.root', 'recreate') as output_file:
+        eg_isolations = []
         for i,pars in enumerate(parameters):
             # Load saved isolation regression
             eff = float(pars['eff'])
@@ -80,12 +103,17 @@ def main(inputfile, tree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'
             # Apply rho->ntt linear mapping on isolation regression
             a = pu_regression.intercept_
             b = pu_regression.coef_[0]
-            eg_isolation_cuts = isolation_cuts(iso_regression=iso_regression, input_mappings={1:(lambda x:max(0.,(x-a)/b))})
+            eg_isolation_cuts = isolation_cuts(name='eg_iso_'+pars['eff'], iso_regression=iso_regression, input_mappings={1:(lambda x:max(0.,(x-a)/b))})
+            eg_isolations.append(eg_isolation_cuts)
             # Create TH2 filled with isolation cuts
             histo = function2th2(eg_isolation_cuts.predict, quantile_regression.binning[inputs[0]], quantile_regression.binning[inputs[1]])
             histo.SetName(name+'_'+str(eff))
-            output_file.cd()
             histo.Write()
+        # Check efficiencies
+        print '> Checking efficiencies vs offline variables'
+        graphs = test_efficiencies(isolations=eg_isolations, inputfile=inputfile, tree=tree, inputnames=inputs, targetname=target, variables=['offl_eta','offl_pt', 'rho', 'npv'])
+        for graph in graphs:
+            graph.Write()
 
 
 
