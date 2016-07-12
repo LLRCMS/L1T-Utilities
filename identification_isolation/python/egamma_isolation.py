@@ -100,9 +100,61 @@ def test_isolation_workingpoints(effs, isolations, inputfile, tree, inputnames=[
             xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
             graphs.append(efficiency.efficiency_graph(pass_function=(lambda x:np.less(x[1],isolation.predict(x[0]))), function_inputs=(inputs,targets), xs=xs))
             graphs[-1].SetName(isolation.name+'_'+variable+'_test')
-    #efficiencies_inclusive = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
-    #efficiencies_diff = np.ediff1d(efficiencies_inclusive)
     return graphs
+
+
+def optimize_background_rejection(effs, isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputnames=['abs(ieta)','ntt'], targetname='iso'):
+    # Compute signal efficiencies
+    ninputs = len(inputnames)
+    branches = copy.deepcopy(inputnames)
+    branches.append(targetname)
+    #branches.extend(variables)
+    data = root2array(signalfile, treename=signaltree, branches=branches, selection='et>10')
+    data = data.view((np.float64, len(data.dtype.names)))
+    inputs = data[:, range(ninputs)].astype(np.float32)
+    targets  = data[:, [ninputs]].astype(np.float32).ravel()
+    signal_efficiencies = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
+    # Compute background efficiencies
+    ninputs = len(inputnames)
+    branches = copy.deepcopy(inputnames)
+    branches.append(targetname)
+    #branches.extend(variables)
+    data = root2array(backgroundfile, treename=backgroundtree, branches=branches, selection='et>10')
+    data = data.view((np.float64, len(data.dtype.names)))
+    inputs = data[:, range(ninputs)].astype(np.float32)
+    targets  = data[:, [ninputs]].astype(np.float32).ravel()
+    background_efficiencies = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
+    # Compute efficiency gradients
+    effs_diff = np.ediff1d(effs)
+    signal_efficiencies_diff = np.ediff1d(signal_efficiencies)
+    background_efficiencies_diff = np.ediff1d(background_efficiencies)
+    signal_efficiencies_diff = np.divide(signal_efficiencies_diff, effs_diff)
+    background_efficiencies_diff = np.divide(background_efficiencies_diff, effs_diff)
+    # Interpolate and find points where background efficiency gradient > signal efficiency gradient (with some tolerance)
+    interp_x = np.linspace(np.amin(effs[1:]), np.amax(effs[1:]), 1000)
+    interp_signal = np.interp(interp_x, effs[1:], signal_efficiencies_diff)
+    interp_background = np.interp(interp_x, effs[1:], background_efficiencies_diff)
+    optimal_points = np.argwhere(np.greater(interp_background-0.05, interp_signal)).ravel() # Use a tolerance of 0.02 in case of fluctuations
+    if len(optimal_points)==0:
+        print 'WARNING: no working point found where the efficiency gradient is larger for background than for signal'
+    # Find optimal point with smallest efficiency
+    ## Compute spacing between points, and select those with an efficiency separation > 2%
+    optimal_discontinuities = np.argwhere(np.ediff1d(interp_x[optimal_points])>0.02).ravel()
+    ## Select the point with the largest efficiency
+    optimal_index = np.amax(optimal_discontinuities)+1 if len(optimal_discontinuities)>0 else 0
+    optimal_point = interp_x[optimal_points[optimal_index]]
+    # Create graphs
+    signal_efficiencies_diff_graph = Graph(len(effs)-1)
+    background_efficiencies_diff_graph = Graph(len(effs)-1)
+    optimal_points_graph = Graph(len(optimal_points))
+    fill_graph(signal_efficiencies_diff_graph, np.column_stack((effs[1:], signal_efficiencies_diff)))
+    fill_graph(background_efficiencies_diff_graph, np.column_stack((effs[1:], background_efficiencies_diff)))
+    fill_graph(optimal_points_graph, np.column_stack((interp_x[optimal_points], interp_signal[optimal_points])))
+    signal_efficiencies_diff_graph.SetName('efficiencies_signal')
+    background_efficiencies_diff_graph.SetName('efficiencies_background')
+    optimal_points_graph.SetName('signal_background_optimal_points')
+    return signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point
+
 
 def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'], target='iso', pileupref='rho'):
     # Compute isolation cuts for efficiencies from 0.2 to 1 with smaller steps for larger efficiencies
@@ -125,22 +177,13 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
         graphs = test_isolation_workingpoints(effs, eg_isolations, signalfile, signaltree, inputs, target)
         for graph in graphs:
             graph.Write()
-        #graphs_background, graphs_bdt_background, efficiencies_inclusive_background, efficiencies_diff_background = test_efficiencies(effs=effs, isolations=eg_isolations, inputfile=backgroundfile, tree=backgroundtree, inputnames=inputs, targetname=target, variables=['ieta','et'])
-        #efficiencies_graph = Graph(len(eg_isolations))
-        #fill_graph(efficiencies_graph, np.column_stack((effs, efficiencies_inclusive)))
-        #efficiencies_diff_graph = Graph(len(eg_isolations)-1)
-        #fill_graph(efficiencies_diff_graph, np.column_stack((effs[1:], efficiencies_diff)))
-        #efficiencies_graph_back = Graph(len(eg_isolations))
-        #fill_graph(efficiencies_graph_back, np.column_stack((effs, efficiencies_inclusive_background)))
-        #efficiencies_diff_graph_back = Graph(len(eg_isolations)-1)
-        #fill_graph(efficiencies_diff_graph_back, np.column_stack((effs[1:], efficiencies_diff_background)))
-        #efficiencies_graph.Write()
-        #efficiencies_diff_graph.SetName(efficiencies_diff_graph.GetName()+'_diff')
-        #efficiencies_diff_graph.Write()
-        #efficiencies_graph_back.SetName(efficiencies_graph_back.GetName()+'_background')
-        #efficiencies_graph_back.Write()
-        #efficiencies_diff_graph_back.SetName(efficiencies_diff_graph_back.GetName()+'_background_diff')
-        #efficiencies_diff_graph_back.Write()
+        # Optimize signal efficiency vs background rejection
+        print '> Optimizing signal efficiency vs background rejection'
+        signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = optimize_background_rejection(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target)
+        print '   Choosing working point', optimal_point
+        signal_efficiencies_diff_graph.Write()
+        background_efficiencies_diff_graph.Write()
+        optimal_points_graph.Write()
 
 
 
