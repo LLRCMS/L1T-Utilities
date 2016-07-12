@@ -2,9 +2,29 @@
 import copy
 import numpy as np
 
+from sklearn.ensemble import GradientBoostingClassifier
+
 from rootpy.plotting import Hist, Hist2D, Graph
 from rootpy.io import root_open
-from root_numpy import fill_hist, root2array
+from rootpy.ROOT import TEfficiency
+from root_numpy import fill_hist, fill_graph, root2array
+
+
+
+
+def efficiency_inclusive(pass_function, function_inputs):
+    pass_results = pass_function(function_inputs)
+    k = float(np.count_nonzero(pass_results))
+    n = float(len(pass_results))
+    efficiency = 0.
+    lower = 0.
+    upper = 0.
+    if n>0.:
+        confidence = 0.682689492137
+        efficiency = k/n
+        lower = TEfficiency.ClopperPearson(n,k,confidence,False)
+        upper = TEfficiency.ClopperPearson(n,k,confidence,True)
+    return efficiency, lower, upper
 
 
 def efficiency_graph(pass_function, function_inputs, xs, bins=None, error=0.005):
@@ -29,4 +49,30 @@ def efficiency_graph(pass_function, function_inputs, xs, bins=None, error=0.005)
     efficiency = Graph()
     efficiency.Divide(histo_pass, histo_total)
     return efficiency
+
+def efficiency_bdt(pass_function, function_inputs, xs):
+    pass_results = pass_function(function_inputs)
+    xs_train = xs.reshape(-1,1)
+    clf = GradientBoostingClassifier()
+    clf.fit(xs_train, pass_results)
+    graph = Graph(100)
+    xs_graph = np.linspace(np.amin(xs), np.amax(xs), num=100)
+    probas = clf.predict_proba(xs_graph.reshape(-1,1))[:, [1]]
+    print probas
+    fill_graph(graph, np.column_stack((xs_graph, probas)))
+    print np.column_stack((xs_graph, probas))
+    return graph
+
+
+#def cuts_efficiencies(pass_functions, function_inputs):
+    #return [efficiency_inclusive(pass_function=pass_function, function_inputs=function_inputs) for pass_function in pass_functions]
+
+
+#def cuts_efficiencies(working_points, pass_functions, function_inputs):
+    #efficiency_curve = Graph(len(pass_functions))
+    #for i,(wp,pass_function) in enumerate(zip(working_points,pass_functions)):
+        #eff, low, up = efficiency_inclusive(pass_function=pass_function, function_inputs=function_inputs)
+        #efficiency_curve.SetPoint(i, wp, eff)
+        #efficiency_curve.SetPointError(i, 0,0, eff-low, up-eff)
+    #return efficiency_curve
 

@@ -8,9 +8,9 @@ import os
 import numpy as np
 from sklearn.externals import joblib
 
-from rootpy.plotting import Hist2D
+from rootpy.plotting import Hist2D, Graph
 from rootpy.io import root_open
-from root_numpy import root2array
+from root_numpy import root2array, fill_graph
 
 
 # Compound of multivariate isolation cuts and input mappings
@@ -52,7 +52,38 @@ def iso_parameters(inputfile, tree, name, inputs, target, effs, test):
     return parameters
 
 
-def test_efficiencies(isolations, inputfile, tree, inputnames, targetname, variables):
+def train_isolation_workingpoints(effs, inputfile, tree, outputdir, version, name, test=False, inputs=['abs(ieta)','ntt'], target='iso', pileupref='rho'):
+    print '> Deriving {0}->{1} map'.format(pileupref, inputs[1])
+    pu_regression = correlations.fit_linear(inputfile, tree, pileupref, inputs[1], test=False)
+    print '> Deriving isolation working points'
+    workingdir = outputdir+'/'+version
+    # Replacing L1 pile-up variable (ntt) with the reference pile-up variable (rho)
+    regression_inputs = copy.deepcopy(inputs)
+    regression_inputs[1] = pileupref
+    parameters = iso_parameters(inputfile, tree, name, regression_inputs, target, effs, test)
+    batch_launcher.main(workingdir=outputdir,
+                        exe='python {}/identification_isolation/python/quantile_regression.py'.format(os.environ['L1TSTUDIES_BASE']),
+                        pars=parameters)
+    print '> Waiting batch jobs to finish...'
+    batch_launcher.wait_jobs(workingdir, wait=5)
+    print '  ... Batch jobs done'
+    print '> Applying {0}->{1} map'.format(pileupref, inputs[1])
+    eg_isolations = []
+    for i,pars in enumerate(parameters):
+        # Load saved isolation regression
+        eff = float(pars['eff'])
+        result_dir = workingdir+'/'+name+'_{}'.format(eff*100)
+        iso_regression = joblib.load(result_dir+'/'+name+'.pkl')
+        # Apply rho->ntt linear mapping on isolation regression
+        a = pu_regression.intercept_
+        b = pu_regression.coef_[0]
+        eg_isolation_cuts = isolation_cuts(name='eg_iso_'+pars['eff'], iso_regression=iso_regression, input_mappings={1:(lambda x:max(0.,(x-a)/b))})
+        eg_isolations.append(eg_isolation_cuts)
+    return eg_isolations
+
+
+
+def test_isolation_workingpoints(effs, isolations, inputfile, tree, inputnames=['abs(ieta)','ntt'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
     # Retrieve data from tree
     ninputs = len(inputnames)
     branches = copy.deepcopy(inputnames)
@@ -68,52 +99,48 @@ def test_efficiencies(isolations, inputfile, tree, inputnames, targetname, varia
         for i,variable in enumerate(variables):
             xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
             graphs.append(efficiency.efficiency_graph(pass_function=(lambda x:np.less(x[1],isolation.predict(x[0]))), function_inputs=(inputs,targets), xs=xs))
-            graphs[-1].SetName(isolation.name+'_'+variable)
+            graphs[-1].SetName(isolation.name+'_'+variable+'_test')
+    #efficiencies_inclusive = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
+    #efficiencies_diff = np.ediff1d(efficiencies_inclusive)
     return graphs
 
-def main(inputfile, tree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'], target='iso', pileupref='rho'):
+def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'], target='iso', pileupref='rho'):
     # Compute isolation cuts for efficiencies from 0.2 to 1 with smaller steps for larger efficiencies
     effs = np.arange(0.2,0.5,0.05)
     effs = np.concatenate((effs,np.arange(0.5,0.85,0.02)))
     effs = np.concatenate((effs,np.arange(0.85,0.999,0.01)))
-    #effs = np.arange(0.6,1.,0.1)
-    print '> Deriving {0}->{1} map'.format(pileupref, inputs[1])
-    pu_regression = correlations.fit_linear(inputfile, tree, pileupref, inputs[1], test=False)
-    print '> Deriving isolation working points'
+    #effs = np.arange(0.6,1.,0.1) # for tests
     version = batch_launcher.job_version(outputdir)
     workingdir = outputdir+'/'+version
-    # Replacing L1 pile-up variable (ntt) with the reference pile-up variable (rho)
-    regression_inputs = copy.deepcopy(inputs)
-    regression_inputs[1] = pileupref
-    parameters = iso_parameters(inputfile, tree, name, regression_inputs, target, effs, test)
-    batch_launcher.main(workingdir=outputdir,
-                        exe='python {}/identification_isolation/python/quantile_regression.py'.format(os.environ['L1TSTUDIES_BASE']),
-                        pars=parameters)
-    print '> Waiting batch jobs to finish...'
-    batch_launcher.wait_jobs(workingdir, wait=5)
-    print '  ... Batch jobs done'
-    print '> Applying {0}->{1} map'.format(pileupref, inputs[1])
+    # Train isolation cuts
+    eg_isolations = train_isolation_workingpoints(effs, signalfile, signaltree, outputdir, version, name, test, inputs, target, pileupref)
     with root_open(workingdir+'/'+name+'.root', 'recreate') as output_file:
-        eg_isolations = []
-        for i,pars in enumerate(parameters):
-            # Load saved isolation regression
-            eff = float(pars['eff'])
-            result_dir = workingdir+'/'+name+'_{}'.format(eff*100)
-            iso_regression = joblib.load(result_dir+'/'+name+'.pkl')
-            # Apply rho->ntt linear mapping on isolation regression
-            a = pu_regression.intercept_
-            b = pu_regression.coef_[0]
-            eg_isolation_cuts = isolation_cuts(name='eg_iso_'+pars['eff'], iso_regression=iso_regression, input_mappings={1:(lambda x:max(0.,(x-a)/b))})
-            eg_isolations.append(eg_isolation_cuts)
-            # Create TH2 filled with isolation cuts
+        # Save isolation cuts in TH2s
+        for eff,eg_isolation_cuts in zip(effs,eg_isolations):
             histo = function2th2(eg_isolation_cuts.predict, quantile_regression.binning[inputs[0]], quantile_regression.binning[inputs[1]])
             histo.SetName(name+'_'+str(eff))
             histo.Write()
-        # Check efficiencies
+        # Test isolation cuts vs offline variables
         print '> Checking efficiencies vs offline variables'
-        graphs = test_efficiencies(isolations=eg_isolations, inputfile=inputfile, tree=tree, inputnames=inputs, targetname=target, variables=['offl_eta','offl_pt', 'rho', 'npv'])
+        graphs = test_isolation_workingpoints(effs, eg_isolations, signalfile, signaltree, inputs, target)
         for graph in graphs:
             graph.Write()
+        #graphs_background, graphs_bdt_background, efficiencies_inclusive_background, efficiencies_diff_background = test_efficiencies(effs=effs, isolations=eg_isolations, inputfile=backgroundfile, tree=backgroundtree, inputnames=inputs, targetname=target, variables=['ieta','et'])
+        #efficiencies_graph = Graph(len(eg_isolations))
+        #fill_graph(efficiencies_graph, np.column_stack((effs, efficiencies_inclusive)))
+        #efficiencies_diff_graph = Graph(len(eg_isolations)-1)
+        #fill_graph(efficiencies_diff_graph, np.column_stack((effs[1:], efficiencies_diff)))
+        #efficiencies_graph_back = Graph(len(eg_isolations))
+        #fill_graph(efficiencies_graph_back, np.column_stack((effs, efficiencies_inclusive_background)))
+        #efficiencies_diff_graph_back = Graph(len(eg_isolations)-1)
+        #fill_graph(efficiencies_diff_graph_back, np.column_stack((effs[1:], efficiencies_diff_background)))
+        #efficiencies_graph.Write()
+        #efficiencies_diff_graph.SetName(efficiencies_diff_graph.GetName()+'_diff')
+        #efficiencies_diff_graph.Write()
+        #efficiencies_graph_back.SetName(efficiencies_graph_back.GetName()+'_background')
+        #efficiencies_graph_back.Write()
+        #efficiencies_diff_graph_back.SetName(efficiencies_diff_graph_back.GetName()+'_background_diff')
+        #efficiencies_diff_graph_back.Write()
 
 
 
@@ -121,8 +148,10 @@ if __name__=='__main__':
     import optparse
     usage = 'usage: python %prog [options]'
     parser = optparse.OptionParser(usage)
-    parser.add_option('--inputfile', dest='input_file', help='Input file', default='tree.root')
-    parser.add_option('--tree', dest='tree_name', help='Tree in the input file', default='tree')
+    parser.add_option('--signalfile', dest='signal_file', help='Input file', default='tree.root')
+    parser.add_option('--signaltree', dest='signal_tree', help='Tree in the input file', default='tree')
+    parser.add_option('--backgroundfile', dest='background_file', help='Input file', default='tree.root')
+    parser.add_option('--backgroundtree', dest='background_tree', help='Tree in the input file', default='tree')
     parser.add_option('--outputdir', dest='output_dir', help='Output directory', default='./')
     parser.add_option('--name', dest='name', help='Name used for the results', default='egamma_isolation')
     parser.add_option('--test', action="store_true", dest='test', help='Flag to test regression on a test sample', default=False)
@@ -131,4 +160,7 @@ if __name__=='__main__':
     parser.add_option('--target', dest='target', help='Target variable', default='iso')
     (opt, args) = parser.parse_args()
     inputs = opt.inputs.replace(' ','').split(',')
-    main(inputfile=opt.input_file, tree=opt.tree_name, outputdir=opt.output_dir, name=opt.name, test=opt.test, inputs=inputs, target=opt.target, pileupref=opt.pileup_ref)
+    main(signalfile=opt.signal_file, signaltree=opt.signal_tree,
+        backgroundfile=opt.background_file, backgroundtree=opt.background_tree,
+         outputdir=opt.output_dir, name=opt.name, test=opt.test, inputs=inputs, target=opt.target, pileupref=opt.pileup_ref)
+
