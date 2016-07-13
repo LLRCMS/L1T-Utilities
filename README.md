@@ -49,6 +49,34 @@ The jobs have a version attached to them, which is automatically computed. When 
 
 
 ## `identification_isolation`
+
+### `python/egamma_isolation`
+This script runs all the steps needed for the egamma isolation:
+* Perform a linear regression of `ntt` vs `rho`
+* Train multiple quantile regressions to derive isolation cuts for several efficiency working points. These cuts are derived as a function of `|ieta|` and `rho`. The trainings will be launched on batch.
+* Apply the `ntt` to `rho` mapping to the isolation regression and save results as 2D histograms (`|ieta|`, `ntt`) for all the working points.   
+* Produce efficiencies of all the working points vs eta and pt of the offline electron, and npv, rho
+* Find the optimal inclusive working point, in terms of background rejection and signal efficiency
+* Find the optimal working point in bins of |ieta|
+
+The optimization of the working points is done by looking at the efficiency gradient for signal and background. The optimal working point is chosen as the point where the background gradient becomes smaller or equal to the signal gradient. This means that cutting harder than this point will kill signal more (or equally) than it kills background.   
+
+```
+Usage: python egamma_isolation.py [options]
+
+Options:
+  -h, --help              show this help message and exit
+  --inputfile=INPUT_FILE  Input file
+  --tree=TREE_NAME        Tree in the input file
+  --outputdir=OUTPUT_DIR  Output directory
+  --name=NAME             Name used for the results
+  --test                  Flag to test regression on a test sample
+  --inputs=INPUTS         List of input variables of the form "var1,var2,..."
+  --pileupref=PILEUP_REF  Reference variable used for pile-up
+  --target=TARGET         Target variable
+```
+
+
 ### `python/quantile_regression`
 This script computes cuts to be applied on a target variable, function of several input variables. These cuts are determined such that they give a flat efficiency as a function of the input variables.  
 
@@ -83,6 +111,15 @@ Options:
 ```
 
 ### `python/efficiency`
+`efficiency_inclusive` produces the inclusive efficiency from a selection function.
+```
+Parameters:
+	pass_function: function used to select events. Must be able to take arrays as inputs
+    function_inputs: inputs given to the function
+Returns:
+    Efficiency, down error, up error
+```
+
 `efficiency_graph` produces a 1D efficiency graph from a selection function.
 ```
 Parameters:
@@ -91,27 +128,9 @@ Parameters:
     xs: values of the variable of interest, used to fill the histograms
     bins: histogram binning. If no binning is given, it will be computed automatically
     error: target uncertainty on the efficiciency, used to determine the automatic binning
+Returns:
+    Efficiency graph
 ```
 
 
-### `python/egamma_isolation`
-This script runs all the steps needed for the egamma isolation:
-* Perform a linear regression of `ntt` vs `rho`
-* Train multiple quantile regressions to derive isolation cuts for several efficiency working points. These cuts are derived as a function of `|ieta|` and `rho`. The trainings will be launched on batch.
-* Apply the `ntt` to `rho` mapping to the isolation regression and save results as 2D histograms (`|ieta|`, `ntt`) for all the working points.   
-
-```
-Usage: python egamma_isolation.py [options]
-
-Options:
-  -h, --help              show this help message and exit
-  --inputfile=INPUT_FILE  Input file
-  --tree=TREE_NAME        Tree in the input file
-  --outputdir=OUTPUT_DIR  Output directory
-  --name=NAME             Name used for the results
-  --test                  Flag to test regression on a test sample
-  --inputs=INPUTS         List of input variables of the form "var1,var2,..."
-  --pileupref=PILEUP_REF  Reference variable used for pile-up
-  --target=TARGET         Target variable
-```
 
