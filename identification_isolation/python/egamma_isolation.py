@@ -13,6 +13,12 @@ from rootpy.io import root_open
 from root_numpy import root2array, fill_graph
 
 
+def graph2array(graph):
+    xs = np.array([graph.GetX()[p] for p in range(graph.GetN())])
+    ys = np.array([graph.GetY()[p] for p in range(graph.GetN())])
+    return np.column_stack((xs,ys))
+
+
 # Compound of multivariate isolation cuts and input mappings
 class isolation_cuts:
     def __init__(self, iso_regression, input_mappings, name='isolation'):
@@ -102,28 +108,7 @@ def test_isolation_workingpoints(effs, isolations, inputfile, tree, inputnames=[
             graphs[-1].SetName(isolation.name+'_'+variable+'_test')
     return graphs
 
-
-def optimize_background_rejection(effs, isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputnames=['abs(ieta)','ntt'], targetname='iso'):
-    # Compute signal efficiencies
-    ninputs = len(inputnames)
-    branches = copy.deepcopy(inputnames)
-    branches.append(targetname)
-    #branches.extend(variables)
-    data = root2array(signalfile, treename=signaltree, branches=branches, selection='et>10')
-    data = data.view((np.float64, len(data.dtype.names)))
-    inputs = data[:, range(ninputs)].astype(np.float32)
-    targets  = data[:, [ninputs]].astype(np.float32).ravel()
-    signal_efficiencies = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
-    # Compute background efficiencies
-    ninputs = len(inputnames)
-    branches = copy.deepcopy(inputnames)
-    branches.append(targetname)
-    #branches.extend(variables)
-    data = root2array(backgroundfile, treename=backgroundtree, branches=branches, selection='et>10')
-    data = data.view((np.float64, len(data.dtype.names)))
-    inputs = data[:, range(ninputs)].astype(np.float32)
-    targets  = data[:, [ninputs]].astype(np.float32).ravel()
-    background_efficiencies = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
+def find_best_working_point(effs, signal_efficiencies, background_efficiencies):
     # Compute efficiency gradients
     effs_diff = np.ediff1d(effs)
     signal_efficiencies_diff = np.ediff1d(signal_efficiencies)
@@ -156,6 +141,80 @@ def optimize_background_rejection(effs, isolations, signalfile, signaltree, back
     return signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point
 
 
+
+def optimize_background_rejection(effs, isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputnames=['abs(ieta)','ntt'], targetname='iso'):
+    # Compute signal efficiencies
+    ninputs = len(inputnames)
+    branches = copy.deepcopy(inputnames)
+    branches.append(targetname)
+    #branches.extend(variables)
+    data = root2array(signalfile, treename=signaltree, branches=branches, selection='et>10')
+    data = data.view((np.float64, len(data.dtype.names)))
+    inputs = data[:, range(ninputs)].astype(np.float32)
+    targets  = data[:, [ninputs]].astype(np.float32).ravel()
+    signal_efficiencies = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
+    # Compute background efficiencies
+    ninputs = len(inputnames)
+    branches = copy.deepcopy(inputnames)
+    branches.append(targetname)
+    #branches.extend(variables)
+    data = root2array(backgroundfile, treename=backgroundtree, branches=branches, selection='et>10')
+    data = data.view((np.float64, len(data.dtype.names)))
+    inputs = data[:, range(ninputs)].astype(np.float32)
+    targets  = data[:, [ninputs]].astype(np.float32).ravel()
+    background_efficiencies = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
+    return find_best_working_point(effs, signal_efficiencies, background_efficiencies)
+
+
+def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputnames=['abs(ieta)','ntt'], targetname='iso'):
+    #ieta_binning = np.arange(0.5,28.5,1)
+    ieta_binning = [0.5, 3.5, 6.5, 9.5, 13.5, 18.5, 22.5, 27.5]
+    # Compute signal efficiencies
+    ninputs = len(inputnames)
+    branches = copy.deepcopy(inputnames)
+    branches.append(targetname)
+    data = root2array(signalfile, treename=signaltree, branches=branches, selection='et>10')
+    data = data.view((np.float64, len(data.dtype.names)))
+    inputs = data[:, range(ninputs)].astype(np.float32)
+    targets  = data[:, [ninputs]].astype(np.float32).ravel()
+    xs  = data[:, [0]].astype(np.float32).ravel()
+    # signal_efficiencies is a 2D array 
+    # The first dimension corresponds to different ieta values
+    # The second dimension corresponds to different working points
+    signal_efficiencies = [graph2array(efficiency.efficiency_graph(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets), xs=xs, bins=ieta_binning))[:,[1]].ravel() for iso in isolations]
+    signal_efficiencies = np.column_stack(signal_efficiencies)
+    # Compute background efficiencies
+    ninputs = len(inputnames)
+    branches = copy.deepcopy(inputnames)
+    branches.append(targetname)
+    data = root2array(backgroundfile, treename=backgroundtree, branches=branches, selection='et>10')
+    data = data.view((np.float64, len(data.dtype.names)))
+    inputs = data[:, range(ninputs)].astype(np.float32)
+    targets  = data[:, [ninputs]].astype(np.float32).ravel()
+    xs  = data[:, [0]].astype(np.float32).ravel()
+    # background_efficiencies is a 2D array 
+    # The first dimension corresponds to different ieta values
+    # The second dimension corresponds to different working points
+    background_efficiencies = [graph2array(efficiency.efficiency_graph(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets), xs=xs, bins=ieta_binning))[:,[1]].ravel() for iso in isolations]
+    background_efficiencies = np.column_stack(background_efficiencies)
+    signal_efficiencies_diff_graphs = []
+    background_efficiencies_diff_graphs = []
+    optimal_points_graphs = []
+    optimal_points = []
+    # compute best working point for each ieta
+    for i,(signal_effs,background_effs) in enumerate(zip(signal_efficiencies, background_efficiencies)):
+        signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = find_best_working_point(effs, signal_effs, background_effs)
+        signal_efficiencies_diff_graph.SetName('efficiencies_signal_ieta_{}'.format(i))
+        background_efficiencies_diff_graph.SetName('efficiencies_background_ieta_{}'.format(i))
+        optimal_points_graph.SetName('signal_background_optimal_points_ieta_{}'.format(i))
+        signal_efficiencies_diff_graphs.append(signal_efficiencies_diff_graph)
+        background_efficiencies_diff_graphs.append(background_efficiencies_diff_graph)
+        optimal_points_graphs.append(optimal_points_graph)
+        optimal_points.append(optimal_point)
+
+    return signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points
+
+
 def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'], target='iso', pileupref='rho'):
     # Compute isolation cuts for efficiencies from 0.2 to 1 with smaller steps for larger efficiencies
     effs = np.arange(0.2,0.5,0.05)
@@ -180,10 +239,18 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
         # Optimize signal efficiency vs background rejection
         print '> Optimizing signal efficiency vs background rejection'
         signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = optimize_background_rejection(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target)
-        print '   Choosing working point', optimal_point
-        signal_efficiencies_diff_graph.Write()
+        print '   Best inclusive working point', optimal_point
+        signal_efficiencies_diff_graph.Write() 
         background_efficiencies_diff_graph.Write()
         optimal_points_graph.Write()
+        signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points = optimize_background_rejection_vs_ieta(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target)
+        print '   Best working points vs |ieta|', optimal_points
+        for graph in signal_efficiencies_diff_graphs: 
+            graph.Write()
+        for graph in background_efficiencies_diff_graphs:
+            graph.Write()
+        for graph in optimal_points_graphs:
+            graph.Write()
 
 
 

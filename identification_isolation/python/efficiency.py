@@ -29,7 +29,7 @@ def efficiency_inclusive(pass_function, function_inputs):
 
 def efficiency_graph(pass_function, function_inputs, xs, bins=None, error=0.005):
     pass_results = pass_function(function_inputs)
-    if not bins: # Automatic binning
+    if bins is None: # Automatic binning
         # Compute the number of bins such that the error on the efficiency is equal to 'error' in each bin
         # The calculation is based on binomial errors and assumes that the efficiency is flat (that the distributions of all and selected events are the same)
         k = float(np.count_nonzero(pass_results))
