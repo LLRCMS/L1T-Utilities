@@ -8,9 +8,9 @@ import os
 import numpy as np
 from sklearn.externals import joblib
 
-from rootpy.plotting import Hist2D, Graph
+from rootpy.plotting import Hist, Hist2D, Graph
 from rootpy.io import root_open
-from root_numpy import root2array, fill_graph
+from root_numpy import root2array, fill_graph, fill_hist
 
 
 def graph2array(graph):
@@ -108,13 +108,24 @@ def test_isolation_workingpoints(effs, isolations, inputfile, tree, inputnames=[
             graphs[-1].SetName(isolation.name+'_'+variable+'_test')
     return graphs
 
-def find_best_working_point(effs, signal_efficiencies, background_efficiencies):
+def find_best_working_point(effs, signal_efficiencies, background_efficiencies, signal_probabilities, background_probabilities):
+    # Compute ratios of bacground and signal probabilities and truncate the array
+    # to match the gradient array size
+    probability_ratios = background_probabilities/signal_probabilities
+    probability_ratios = probability_ratios[1:]
+    print 'Probability ratios = \n', probability_ratios
     # Compute efficiency gradients
     effs_diff = np.ediff1d(effs)
     signal_efficiencies_diff = np.ediff1d(signal_efficiencies)
     background_efficiencies_diff = np.ediff1d(background_efficiencies)
     signal_efficiencies_diff = np.divide(signal_efficiencies_diff, effs_diff)
     background_efficiencies_diff = np.divide(background_efficiencies_diff, effs_diff)
+    # Apply the signal and background probabilities in order to weight the efficiency gradients
+    # If it is more likely to have background than signal in this bin, then the background efficiency gradient
+    # will be increased accordingly
+    print 'Background gradient before =\n', background_efficiencies_diff
+    background_efficiencies_diff = background_efficiencies_diff * probability_ratios
+    print 'Background gradient after =\n', background_efficiencies_diff
     # Interpolate and find points where background efficiency gradient > signal efficiency gradient (with some tolerance)
     interp_x = np.linspace(np.amin(effs[1:]), np.amax(effs[1:]), 1000)
     interp_signal = np.interp(interp_x, effs[1:], signal_efficiencies_diff)
@@ -152,7 +163,7 @@ def optimize_background_rejection(effs, isolations, signalfile, signaltree, back
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
-    signal_efficiencies = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
+    signal_efficiencies = np.array([efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations])
     # Compute background efficiencies
     ninputs = len(inputnames)
     branches = copy.deepcopy(inputnames)
@@ -162,8 +173,10 @@ def optimize_background_rejection(effs, isolations, signalfile, signaltree, back
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
-    background_efficiencies = [efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations]
-    return find_best_working_point(effs, signal_efficiencies, background_efficiencies)
+    background_efficiencies = np.array([efficiency.efficiency_inclusive(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets))[0] for iso in isolations])
+    proba_signal = np.ones(signal_efficiencies.shape)
+    proba_background = np.ones(background_efficiencies.shape)
+    return find_best_working_point(effs, signal_efficiencies, background_efficiencies, proba_signal, proba_background)
 
 
 def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputnames=['abs(ieta)','ntt'], targetname='iso'):
@@ -178,6 +191,10 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
     xs  = data[:, [0]].astype(np.float32).ravel()
+    # fill signal ieta histogram and normalize to 1
+    histo_signal = Hist(ieta_binning)
+    fill_hist(histo_signal, xs)
+    #histo_signal.Scale(1./histo_signal.integral(overflow=True))
     # signal_efficiencies is a 2D array 
     # The first dimension corresponds to different ieta values
     # The second dimension corresponds to different working points
@@ -192,6 +209,10 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
     xs  = data[:, [0]].astype(np.float32).ravel()
+    # fill background ieta histogram and normalize to 1
+    histo_background = Hist(ieta_binning)
+    fill_hist(histo_background, xs)
+    #histo_background.Scale(1./histo_background.integral(overflow=True))
     # background_efficiencies is a 2D array 
     # The first dimension corresponds to different ieta values
     # The second dimension corresponds to different working points
@@ -201,9 +222,20 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
     background_efficiencies_diff_graphs = []
     optimal_points_graphs = []
     optimal_points = []
-    # compute best working point for each ieta
+    # compute best working point for each ieta (loop on ieta)
     for i,(signal_effs,background_effs) in enumerate(zip(signal_efficiencies, background_efficiencies)):
-        signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = find_best_working_point(effs, signal_effs, background_effs)
+        # Compute the probability of signal in this ieta bin for the different efficiency points
+        # It is assumed that the cut is applied only in this bin, all the other bins keep the same number of entries
+        n_i = histo_signal[i+1].value 
+        n_tot = histo_signal.integral(overflow=True)
+        proba_signal = np.array([n_i*eff/(n_tot-n_i*(1.-eff)) for eff in signal_effs])
+        print 'Proba signal =\n', proba_signal
+        # Same as above, but for background
+        n_i = histo_background[i+1].value 
+        n_tot = histo_background.integral(overflow=True)
+        proba_background = np.array([n_i*eff/(n_tot-n_i*(1.-eff)) for eff in background_effs])
+        print 'Proba background =\n', proba_background
+        signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = find_best_working_point(effs, signal_effs, background_effs, proba_signal, proba_background)
         signal_efficiencies_diff_graph.SetName('efficiencies_signal_ieta_{}'.format(i))
         background_efficiencies_diff_graph.SetName('efficiencies_background_ieta_{}'.format(i))
         optimal_points_graph.SetName('signal_background_optimal_points_ieta_{}'.format(i))
