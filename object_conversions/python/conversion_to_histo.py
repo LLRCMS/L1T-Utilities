@@ -1,3 +1,4 @@
+import numpy as np
 from rootpy.plotting import Hist2D
 
 # 'function' must be able to take an array of (2D) array as input
@@ -13,7 +14,7 @@ def function2th2(function, binsx, binsy, titlex='', titley=''):
             y = histo.GetYaxis().GetBinCenter(by)
             values.append([x,y])
     # Call function for each value
-    results = function(values)
+    results = function(np.array(values))
     for result,value in zip(results, values):
         bx = histo.GetXaxis().FindBin(value[0])
         by = histo.GetYaxis().FindBin(value[1])

@@ -1,6 +1,6 @@
-from object_conversions.conversion_to_histo import function2th2
 from batch import batch_launcher
 from identification_isolation import quantile_regression, correlations, efficiency
+from object_conversions.conversion_to_histo import function2th2
 
 import copy
 import os
@@ -8,9 +8,12 @@ import os
 import numpy as np
 from sklearn.externals import joblib
 
+
 from rootpy.plotting import Hist, Hist2D, Graph
 from rootpy.io import root_open
-from root_numpy import root2array, fill_graph, fill_hist
+from root_numpy import root2array, hist2array, array2hist, fill_graph, fill_hist, evaluate
+
+
 
 
 def graph2array(graph):
@@ -18,9 +21,18 @@ def graph2array(graph):
     ys = np.array([graph.GetY()[p] for p in range(graph.GetN())])
     return np.column_stack((xs,ys))
 
+def find_closest(a, target):
+    # a must be sorted
+    idx = a.searchsorted(target)
+    idx = np.clip(idx, 1, len(a)-1)
+    left = a[idx-1]
+    right = a[idx]
+    idx -= target - left < right - target
+    return idx
+
 
 # Compound of multivariate isolation cuts and input mappings
-class isolation_cuts:
+class IsolationCuts:
     def __init__(self, iso_regression, input_mappings, name='isolation'):
         self.name = name
         self.iso_regression = iso_regression
@@ -41,6 +53,26 @@ class isolation_cuts:
             mapped_inputs = np.insert(mapped_inputs, [index], mapped_inputs_i, axis=1)
         # Apply iso regression on mapped inputs
         return self.iso_regression.predict(mapped_inputs)
+
+class IsolationCombinedCuts:
+    def __init__(self, working_points, functions, efficiency_map):
+        efficiency_array = hist2array(efficiency_map)
+        print 'Creating combined iso cuts with efficiencies', efficiency_array
+        working_points_indices = find_closest(working_points, efficiency_array)
+        self.function_index_map = efficiency_map.empty_clone()
+        array2hist(working_points_indices, self.function_index_map)
+        self.functions = functions
+        self.dim = len(efficiency_array.shape)
+        print self.dim
+
+    def value(self, inputs, map_positions):
+        indices = evaluate(self.function_index_map, map_positions).astype(np.int32)
+        return [self.functions[index]([input]) for index,input in zip(indices,inputs)]
+
+
+
+
+
 
 
 def iso_parameters(inputfile, tree, name, inputs, target, effs, test):
@@ -67,11 +99,11 @@ def train_isolation_workingpoints(effs, inputfile, tree, outputdir, version, nam
     regression_inputs = copy.deepcopy(inputs)
     regression_inputs[1] = pileupref
     parameters = iso_parameters(inputfile, tree, name, regression_inputs, target, effs, test)
-    batch_launcher.main(workingdir=outputdir,
-                        exe='python {}/identification_isolation/python/quantile_regression.py'.format(os.environ['L1TSTUDIES_BASE']),
-                        pars=parameters)
-    print '> Waiting batch jobs to finish...'
-    batch_launcher.wait_jobs(workingdir, wait=5)
+    #batch_launcher.main(workingdir=outputdir,
+                        #exe='python {}/identification_isolation/python/quantile_regression.py'.format(os.environ['L1TSTUDIES_BASE']),
+                        #pars=parameters)
+    #print '> Waiting batch jobs to finish...'
+    #batch_launcher.wait_jobs(workingdir, wait=5)
     print '  ... Batch jobs done'
     print '> Applying {0}->{1} map'.format(pileupref, inputs[1])
     eg_isolations = []
@@ -83,11 +115,30 @@ def train_isolation_workingpoints(effs, inputfile, tree, outputdir, version, nam
         # Apply rho->ntt linear mapping on isolation regression
         a = pu_regression.intercept_
         b = pu_regression.coef_[0]
-        eg_isolation_cuts = isolation_cuts(name='eg_iso_'+pars['eff'], iso_regression=iso_regression, input_mappings={1:(lambda x:max(0.,(x-a)/b))})
+        eg_isolation_cuts = IsolationCuts(name='eg_iso_'+pars['eff'], iso_regression=iso_regression, input_mappings={1:(lambda x:max(0.,(x-a)/b))})
         eg_isolations.append(eg_isolation_cuts)
     return eg_isolations
 
 
+
+def test_combined_isolation(effs, isolation, inputfile, tree, inputnames=['abs(ieta)','ntt'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
+    # Retrieve data from tree
+    ninputs = len(inputnames)
+    branches = copy.deepcopy(inputnames)
+    branches.append(targetname)
+    branches.extend(variables)
+    data = root2array(inputfile, treename=tree, branches=branches)
+    data = data.view((np.float64, len(data.dtype.names)))
+    inputs = data[:, range(ninputs)].astype(np.float32)
+    targets  = data[:, [ninputs]].astype(np.float32).ravel()
+    graphs = []
+    # Compute efficiencies for each variable
+    for i,variable in enumerate(variables):
+        xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
+        #graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],isolation.value(x[0],x[0][:,[0]].ravel()))), function_inputs=(inputs,targets), xs=xs))
+        graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],evaluate(isolation,x[0]))), function_inputs=(inputs,targets), xs=xs))
+        graphs[-1].SetName('combined_'+variable+'_test')
+    return graphs
 
 def test_isolation_workingpoints(effs, isolations, inputfile, tree, inputnames=['abs(ieta)','ntt'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
     # Retrieve data from tree
@@ -113,7 +164,6 @@ def find_best_working_point(effs, signal_efficiencies, background_efficiencies, 
     # to match the gradient array size
     probability_ratios = background_probabilities/signal_probabilities
     probability_ratios = probability_ratios[1:]
-    print 'Probability ratios = \n', probability_ratios
     # Compute efficiency gradients
     effs_diff = np.ediff1d(effs)
     signal_efficiencies_diff = np.ediff1d(signal_efficiencies)
@@ -123,9 +173,7 @@ def find_best_working_point(effs, signal_efficiencies, background_efficiencies, 
     # Apply the signal and background probabilities in order to weight the efficiency gradients
     # If it is more likely to have background than signal in this bin, then the background efficiency gradient
     # will be increased accordingly
-    print 'Background gradient before =\n', background_efficiencies_diff
     background_efficiencies_diff = background_efficiencies_diff * probability_ratios
-    print 'Background gradient after =\n', background_efficiencies_diff
     # Interpolate and find points where background efficiency gradient > signal efficiency gradient (with some tolerance)
     interp_x = np.linspace(np.amin(effs[1:]), np.amax(effs[1:]), 1000)
     interp_signal = np.interp(interp_x, effs[1:], signal_efficiencies_diff)
@@ -153,13 +201,13 @@ def find_best_working_point(effs, signal_efficiencies, background_efficiencies, 
 
 
 
-def optimize_background_rejection(effs, isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputnames=['abs(ieta)','ntt'], targetname='iso'):
+def optimize_background_rejection(effs, isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputnames=['abs(ieta)','ntt'], targetname='iso', cut='et>10'):
     # Compute signal efficiencies
     ninputs = len(inputnames)
     branches = copy.deepcopy(inputnames)
     branches.append(targetname)
     #branches.extend(variables)
-    data = root2array(signalfile, treename=signaltree, branches=branches, selection='et>10')
+    data = root2array(signalfile, treename=signaltree, branches=branches, selection=cut)
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
@@ -169,7 +217,7 @@ def optimize_background_rejection(effs, isolations, signalfile, signaltree, back
     branches = copy.deepcopy(inputnames)
     branches.append(targetname)
     #branches.extend(variables)
-    data = root2array(backgroundfile, treename=backgroundtree, branches=branches, selection='et>10')
+    data = root2array(backgroundfile, treename=backgroundtree, branches=branches, selection=cut)
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
@@ -229,12 +277,10 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
         n_i = histo_signal[i+1].value 
         n_tot = histo_signal.integral(overflow=True)
         proba_signal = np.array([n_i*eff/(n_tot-n_i*(1.-eff)) for eff in signal_effs])
-        print 'Proba signal =\n', proba_signal
         # Same as above, but for background
         n_i = histo_background[i+1].value 
         n_tot = histo_background.integral(overflow=True)
         proba_background = np.array([n_i*eff/(n_tot-n_i*(1.-eff)) for eff in background_effs])
-        print 'Proba background =\n', proba_background
         signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = find_best_working_point(effs, signal_effs, background_effs, proba_signal, proba_background)
         signal_efficiencies_diff_graph.SetName('efficiencies_signal_ieta_{}'.format(i))
         background_efficiencies_diff_graph.SetName('efficiencies_background_ieta_{}'.format(i))
@@ -243,8 +289,9 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
         background_efficiencies_diff_graphs.append(background_efficiencies_diff_graph)
         optimal_points_graphs.append(optimal_points_graph)
         optimal_points.append(optimal_point)
-
-    return signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points
+    optimal_points_histo = Hist(ieta_binning)
+    array2hist(optimal_points, optimal_points_histo)
+    return signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points_histo
 
 
 def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'], target='iso', pileupref='rho'):
@@ -254,6 +301,7 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
     effs = np.concatenate((effs,np.arange(0.85,0.999,0.01)))
     #effs = np.arange(0.6,1.,0.1) # for tests
     version = batch_launcher.job_version(outputdir)
+    version = 'v_5_2016-07-13'
     workingdir = outputdir+'/'+version
     # Train isolation cuts
     eg_isolations = train_isolation_workingpoints(effs, signalfile, signaltree, outputdir, version, name, test, inputs, target, pileupref)
@@ -264,19 +312,32 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
             histo.SetName(name+'_'+str(eff))
             histo.Write()
         # Test isolation cuts vs offline variables
-        print '> Checking efficiencies vs offline variables'
-        graphs = test_isolation_workingpoints(effs, eg_isolations, signalfile, signaltree, inputs, target)
-        for graph in graphs:
-            graph.Write()
+        #print '> Checking efficiencies vs offline variables'
+        #graphs = test_isolation_workingpoints(effs, eg_isolations, signalfile, signaltree, inputs, target)
+        #for graph in graphs:
+            #graph.Write()
         # Optimize signal efficiency vs background rejection
         print '> Optimizing signal efficiency vs background rejection'
-        signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = optimize_background_rejection(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target)
+        #for et_cut in [10, 15, 20, 30, 40, 50]:
+        et_cut = 30
+        signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = optimize_background_rejection(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target, cut='et>{}'.format(et_cut))
         print '   Best inclusive working point', optimal_point
+        signal_efficiencies_diff_graph.SetName(signal_efficiencies_diff_graph.GetName()+'_et_{}'.format(et_cut))
+        background_efficiencies_diff_graph.SetName(background_efficiencies_diff_graph.GetName()+'_et_{}'.format(et_cut))
+        optimal_points_graph.SetName(optimal_points_graph.GetName()+'_et_{}'.format(et_cut))
         signal_efficiencies_diff_graph.Write() 
         background_efficiencies_diff_graph.Write()
         optimal_points_graph.Write()
         signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points = optimize_background_rejection_vs_ieta(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target)
-        print '   Best working points vs |ieta|', optimal_points
+        combined_cuts = IsolationCombinedCuts(effs, [iso.predict for iso in eg_isolations], optimal_points)
+        combined_cuts_histo = function2th2(lambda x: combined_cuts.value(x,x[:,[0]].ravel()), quantile_regression.binning[inputs[0]], quantile_regression.binning[inputs[1]])
+        print '> Testing combined iso cuts'
+        graphs_comb = test_combined_isolation(effs, combined_cuts_histo, signalfile, signaltree, inputs, target)
+        for graph in graphs_comb:
+            graph.Write()
+        combined_cuts_histo.SetName('optimal_cuts')
+        combined_cuts_histo.Write()
+        print '   Best working points vs |ieta|', hist2array(optimal_points)
         for graph in signal_efficiencies_diff_graphs: 
             graph.Write()
         for graph in background_efficiencies_diff_graphs:
