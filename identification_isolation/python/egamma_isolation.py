@@ -1,6 +1,6 @@
 from batch import batch_launcher
 from identification_isolation import quantile_regression, correlations, efficiency
-from object_conversions.conversion_to_histo import function2th2
+from object_conversions.conversion_to_histo import function2th2, function2th3
 
 import copy
 import os
@@ -43,6 +43,7 @@ class IsolationCuts:
             self.input_mappings[index] = np.vectorize(mapping)
 
     def predict(self, values):
+        #print 'In IsolationCuts.predict()'
         # Apply input mappings
         mapped_inputs = np.array(values, dtype=np.float64)
         for index,mapping in self.input_mappings.items():
@@ -52,22 +53,51 @@ class IsolationCuts:
             mapped_inputs = np.delete(mapped_inputs, index, axis=1)
             mapped_inputs = np.insert(mapped_inputs, [index], mapped_inputs_i, axis=1)
         # Apply iso regression on mapped inputs
-        return self.iso_regression.predict(mapped_inputs)
+        output = self.iso_regression.predict(mapped_inputs)
+        #print 'Out IsolationCuts.predict()'
+        return output
+
 
 class IsolationCombinedCuts:
     def __init__(self, working_points, functions, efficiency_map):
+        print working_points
+        print functions
         efficiency_array = hist2array(efficiency_map)
         print 'Creating combined iso cuts with efficiencies', efficiency_array
         working_points_indices = find_closest(working_points, efficiency_array)
+        print working_points_indices
         self.function_index_map = efficiency_map.empty_clone()
         array2hist(working_points_indices, self.function_index_map)
+        self.indices = working_points_indices
         self.functions = functions
         self.dim = len(efficiency_array.shape)
         print self.dim
 
     def value(self, inputs, map_positions):
-        indices = evaluate(self.function_index_map, map_positions).astype(np.int32)
-        return [self.functions[index]([input]) for index,input in zip(indices,inputs)]
+        print 'In IsolationCombinedCuts.value()'
+        print '  Find indices'
+        upper_bounds = [self.function_index_map.bounds(axis)[1]-1e-3 for axis in range(len(self.function_index_map.axes))]
+        map_positions_no_overflow = np.apply_along_axis(lambda x:np.minimum(x,upper_bounds), 1, map_positions)
+        if self.dim==1: map_positions_no_overflow = map_positions_no_overflow.ravel()
+        indices = evaluate(self.function_index_map, map_positions_no_overflow).astype(np.int32)
+        print map_positions
+        print indices
+        print '  Compute values'
+        outputs = []
+        for i,function in enumerate(self.functions):
+            if i in self.indices:
+                print '    Index',i
+                outputs.append(function(inputs))
+            else:
+                outputs.append(np.array([]))
+        #output = [self.functions[index]([input]) for index,input in zip(indices,inputs)]
+        print '  Choose indices'
+        output = np.zeros(len(indices))
+        for i,index in enumerate(indices):
+            #print i, len(indices), len(inputs), index, len(outputs[index])
+            output[i] = outputs[index][i]
+        print 'Out IsolationCombinedCuts.value()'
+        return output
 
 
 
@@ -121,7 +151,7 @@ def train_isolation_workingpoints(effs, inputfile, tree, outputdir, version, nam
 
 
 
-def test_combined_isolation(effs, isolation, inputfile, tree, inputnames=['abs(ieta)','ntt'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
+def test_combined_isolation(isolation, inputfile, tree, inputnames=['abs(ieta)','ntt'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
     # Retrieve data from tree
     ninputs = len(inputnames)
     branches = copy.deepcopy(inputnames)
@@ -135,9 +165,28 @@ def test_combined_isolation(effs, isolation, inputfile, tree, inputnames=['abs(i
     # Compute efficiencies for each variable
     for i,variable in enumerate(variables):
         xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
-        #graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],isolation.value(x[0],x[0][:,[0]].ravel()))), function_inputs=(inputs,targets), xs=xs))
-        graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],evaluate(isolation,x[0]))), function_inputs=(inputs,targets), xs=xs))
+        graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],isolation.value(x[0],x[0][:,[0]]))), function_inputs=(inputs,targets), xs=xs))
+        #graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],evaluate(isolation,x[0]))), function_inputs=(inputs,targets), xs=xs))
         graphs[-1].SetName('combined_'+variable+'_test')
+    return graphs
+
+def test_combined_isolation_pt(isolation, inputfile, tree, inputnames=['abs(ieta)','ntt','et'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
+    # Retrieve data from tree
+    ninputs = len(inputnames)
+    branches = copy.deepcopy(inputnames)
+    branches.append(targetname)
+    branches.extend(variables)
+    data = root2array(inputfile, treename=tree, branches=branches)
+    data = data.view((np.float64, len(data.dtype.names)))
+    inputs = data[:, range(ninputs)].astype(np.float32)
+    targets  = data[:, [ninputs]].astype(np.float32).ravel()
+    graphs = []
+    # Compute efficiencies for each variable
+    for i,variable in enumerate(variables):
+        xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
+        graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],isolation.value(x[0][:,[0,1]],x[0][:,[0,2]]))), function_inputs=(inputs,targets), xs=xs))
+        #graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],evaluate(isolation,x[0]))), function_inputs=(inputs,targets), xs=xs))
+        graphs[-1].SetName('combined_pt_'+variable+'_test')
     return graphs
 
 def test_isolation_workingpoints(effs, isolations, inputfile, tree, inputnames=['abs(ieta)','ntt'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
@@ -293,6 +342,17 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
     array2hist(optimal_points, optimal_points_histo)
     return signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points_histo
 
+def relax_efficiency_vs_pt(optimal_points_vs_ieta, threshold, eff_min=0.4,max_et=110):
+    points_vs_ieta_pt = Hist2D(np.array(optimal_points_vs_ieta.GetXaxis().GetXbins()), 200, 0.5, 200.5)
+    for bx in points_vs_ieta_pt.bins_range(0):
+        eff_ref = optimal_points_vs_ieta[bx].value
+        for by in points_vs_ieta_pt.bins_range(1):
+            et = points_vs_ieta_pt.GetYaxis().GetBinCenter(by)
+            eff = (1.-eff_ref)/(max_et-threshold)*(et-threshold) + eff_ref
+            eff = max(eff_min, min(1, eff))
+            points_vs_ieta_pt[bx,by].value = eff
+    return points_vs_ieta_pt
+
 
 def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name, test=False, inputs=['abs(ieta)','ntt'], target='iso', pileupref='rho'):
     # Compute isolation cuts for efficiencies from 0.2 to 1 with smaller steps for larger efficiencies
@@ -330,10 +390,21 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
         optimal_points_graph.Write()
         signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points = optimize_background_rejection_vs_ieta(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target)
         combined_cuts = IsolationCombinedCuts(effs, [iso.predict for iso in eg_isolations], optimal_points)
-        combined_cuts_histo = function2th2(lambda x: combined_cuts.value(x,x[:,[0]].ravel()), quantile_regression.binning[inputs[0]], quantile_regression.binning[inputs[1]])
+        #combined_cuts_histo = function2th2(lambda x: combined_cuts.value(x,x[:,[0]].ravel()), quantile_regression.binning[inputs[0]], quantile_regression.binning[inputs[1]])
+        combined_cuts_histo = function2th2(lambda x: combined_cuts.value(x,x[:,[0]]), quantile_regression.binning[inputs[0]], quantile_regression.binning[inputs[1]])
+        print '> Applying pt relaxation'
+        points_vs_pt_ieta = relax_efficiency_vs_pt(optimal_points, 60)
+        combined_cuts_pt = IsolationCombinedCuts(np.append(effs,[1.]), [iso.predict for iso in eg_isolations]+[lambda x:np.full(x.shape[0],9999.)], points_vs_pt_ieta)
+        #print '> Converting pt relaxed into histo'
+        #combined_cuts_pt_histo = function2th3(lambda x: combined_cuts_pt.value(x[:,[0,1]],x[:,[0,2]]), quantile_regression.binning[inputs[0]], quantile_regression.binning[inputs[1]], quantile_regression.binning['et'])
         print '> Testing combined iso cuts'
-        graphs_comb = test_combined_isolation(effs, combined_cuts_histo, signalfile, signaltree, inputs, target)
+        #graphs_comb = test_combined_isolation(combined_cuts_histo, signalfile, signaltree, inputs, target)
+        graphs_comb = test_combined_isolation(combined_cuts, signalfile, signaltree, inputs, target)
         for graph in graphs_comb:
+            graph.Write()
+        print '> Testing combined iso cuts vs pt'
+        graphs_comb_pt = test_combined_isolation_pt(combined_cuts_pt, signalfile, signaltree, inputs+['et'], target)
+        for graph in graphs_comb_pt:
             graph.Write()
         combined_cuts_histo.SetName('optimal_cuts')
         combined_cuts_histo.Write()
@@ -344,6 +415,10 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
             graph.Write()
         for graph in optimal_points_graphs:
             graph.Write()
+        optimal_points.SetName('optimal_points_vs_ieta')
+        optimal_points.Write()
+        points_vs_pt_ieta.SetName('points_vs_pt_ieta')
+        points_vs_pt_ieta.Write()
 
 
 

@@ -21,7 +21,7 @@ from root_numpy import root2array
 # Predefined binning to store regression results
 binning = {}
 binning['abs(ieta)'] = (30, 0.5, 30.5)
-binning['et'] = (400, 0.5, 400.5)
+binning['et'] = (200, 0.5, 200.5)
 binning['rho'] = (500, 0., 50)
 binning['ntt'] = (81, -0.5, 80.5)
 
