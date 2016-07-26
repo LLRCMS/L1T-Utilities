@@ -28,9 +28,7 @@ def efficiency_inclusive(pass_function, function_inputs):
 
 
 def efficiency_graph(pass_function, function_inputs, xs, bins=None, error=0.005):
-    print 'in efficienc_graph, before pass_function'
     pass_results = pass_function(function_inputs)
-    print 'in efficienc_graph, after pass_function'
     if bins is None: # Automatic binning
         # Compute the number of bins such that the error on the efficiency is equal to 'error' in each bin
         # The calculation is based on binomial errors and assumes that the efficiency is flat (that the distributions of all and selected events are the same)
@@ -39,7 +37,7 @@ def efficiency_graph(pass_function, function_inputs, xs, bins=None, error=0.005)
         percentiles = [0.,100.]
         if k>0: 
             nbins = (error*n)**2/k / (1-k/n)
-            # Compute the bin boundaries with the same number of events in all bins
+            # Compute the bin bounaries with the same number of events in all bins
             percentiles = np.arange(0., 100., 100./nbins)
             percentiles[-1] = 100.
         bins = np.unique(np.percentile(xs, percentiles))

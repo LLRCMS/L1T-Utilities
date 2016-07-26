@@ -1,1 +1,1 @@
-__all__ = ['quantile_regression', 'correlations', 'egamma_isolation', 'efficiency']
+__all__ = ['quantile_regression', 'correlations', 'egamma_isolation', 'efficiency', 'rate']
