@@ -1,6 +1,8 @@
 from batch import batch_launcher
 from identification_isolation import quantile_regression, correlations, efficiency
 from object_conversions.conversion_to_histo import function2th2, function2th3, events2th3
+from utilities.numpy_utilities import find_closest
+from utilities.root_utilities import graph2array
 import rate
 
 import copy
@@ -15,21 +17,6 @@ from rootpy.io import root_open
 from root_numpy import root2array, hist2array, array2hist, fill_graph, fill_hist, evaluate
 
 
-
-
-def graph2array(graph):
-    xs = np.array([graph.GetX()[p] for p in range(graph.GetN())])
-    ys = np.array([graph.GetY()[p] for p in range(graph.GetN())])
-    return np.column_stack((xs,ys))
-
-def find_closest(a, target):
-    # a must be sorted
-    idx = a.searchsorted(target)
-    idx = np.clip(idx, 1, len(a)-1)
-    left = a[idx-1]
-    right = a[idx]
-    idx -= target - left < right - target
-    return idx
 
 
 # Compound of multivariate isolation cuts and input mappings
@@ -140,6 +127,43 @@ def train_isolation_workingpoints(effs, inputfile, tree, outputdir, version, nam
     return eg_isolations
 
 
+def extrapolate_ntt(histo):
+    for beta in histo.bins_range(0):
+        for bet in histo.bins_range(2):
+            x = []
+            y = []
+            maxi = -1
+            # compute extrapolation
+            for bntt in histo.bins_range(1):
+                ntt = histo.GetYaxis().GetBinCenter(bntt)
+                value = histo[beta,bntt,bet].value
+                if value>0 and value<256:
+                    x.append(ntt)
+                    y.append(value)
+                if value>maxi:
+                    maxi = value
+            if len(x)>0:
+                fit = np.poly1d(np.polyfit(x,y,1))
+            # apply extrapolation
+            for bntt in histo.bins_range(1):
+                ntt = histo.GetYaxis().GetBinCenter(bntt)
+                if len(x)>=2 and ntt>max(x):
+                    histo[beta,bntt,bet].value = fit(ntt)
+                elif len(x)==1 and ntt>max(x):
+                    histo[beta,bntt,bet].value = y[0]
+                elif len(x)==0:
+                    histo[beta,bntt,bet].value = 9999.
+
+#def fix_ntt_holes(histo):
+    #for beta in histo.bins_range(0):
+        #for bet in histo.bins_range(2):
+            #values = []
+            ## compute extrapolation
+            #for bntt in histo.bins_range(1):
+                #values.append(histo[beta,bntt,bet].value)
+                
+
+
 
 def test_combined_isolation(isolation, inputfile, tree, inputnames=['abs(ieta)','ntt'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
     # Retrieve data from tree
@@ -147,7 +171,7 @@ def test_combined_isolation(isolation, inputfile, tree, inputnames=['abs(ieta)',
     branches = copy.deepcopy(inputnames)
     branches.append(targetname)
     branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches)
+    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
@@ -166,7 +190,7 @@ def test_combined_isolation_pt(isolation, inputfile, tree, inputnames=['abs(ieta
     branches = copy.deepcopy(inputnames)
     branches.append(targetname)
     branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches)
+    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
@@ -185,7 +209,7 @@ def test_combined_isolation_pt_compressed(isolation, inputfile, tree, inputnames
     branches = copy.deepcopy(inputnames)
     branches.append(targetname)
     branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches)
+    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
@@ -201,7 +225,7 @@ def test_current_isolation(inputfile, tree, iso = 'iso_pass', variables=['offl_e
     # Retrieve data from tree
     branches = [iso]
     branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches)
+    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
     data = data.view((np.float64, len(data.dtype.names)))
     iso = data[:, [0]].astype(np.int32).ravel()
     graphs = []
@@ -218,7 +242,7 @@ def test_isolation_workingpoints(effs, isolations, inputfile, tree, inputnames=[
     branches = copy.deepcopy(inputnames)
     branches.append(targetname)
     branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches)
+    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
@@ -415,7 +439,7 @@ def rate_optimal(thresholds_isolations, inputfile, tree, inputnames=['abs(ieta)'
     branches = copy.deepcopy(inputnames)
     branches.append(targetname)
     branches.extend(['Run', 'Event'])
-    data = root2array(inputfile, treename=tree, branches=branches)
+    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     et = data[:, [ninputs-1]].astype(np.float32).ravel()
@@ -451,7 +475,7 @@ def rates(isolation, inputfile, tree, inputnames=['abs(ieta)','ntt','et_raw'], t
     branches.append(ref_iso)
     branches.append('et')
     branches.extend(['Run', 'Event'])
-    data = root2array(inputfile, treename=tree, branches=branches)
+    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
@@ -484,7 +508,7 @@ def rates_fromhisto(isolation, inputfile, tree, inputnames=['abs(ieta)','ntt','e
     branches.append(ref_iso)
     branches.append('et')
     branches.extend(['Run', 'Event'])
-    data = root2array(inputfile, treename=tree, branches=branches)
+    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
     data = data.view((np.float64, len(data.dtype.names)))
     inputs = data[:, range(ninputs)].astype(np.float32)
     targets  = data[:, [ninputs]].astype(np.float32).ravel()
@@ -517,6 +541,8 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
     version = batch_launcher.job_version(outputdir)
     #version = 'v_5_2016-07-13' # RunC
     #version = 'v_6_2016-07-19' # RunD
+    #version = 'v_7_2016-07-21' # V3
+    #version = 'v_8_2016-07-29' # V3 with et_raw fix
     workingdir = outputdir+'/'+version
     # Train isolation cuts
     eg_isolations = train_isolation_workingpoints(effs, signalfile, signaltree, outputdir, version, name, test, inputs, target, pileupref)
@@ -527,32 +553,32 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
             histo.SetName(name+'_'+str(eff))
             histo.Write()
         # Test isolation cuts vs offline variables
-        print '> Checking efficiencies vs offline variables'
-        graphs = test_isolation_workingpoints(effs, eg_isolations, signalfile, signaltree, inputs, target)
-        for graph in graphs:
-            graph.Write()
+        #print '> Checking efficiencies vs offline variables'
+        #graphs = test_isolation_workingpoints(effs, eg_isolations, signalfile, signaltree, inputs, target)
+        #for graph in graphs:
+            #graph.Write()
         # Optimize signal efficiency vs background rejection
-        print '> Optimizing signal efficiency vs background rejection'
-        #for et_cut in [10, 15, 20, 30, 40, 50]:
-        et_cut = 20
-        signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = optimize_background_rejection(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target, cut='et>{}'.format(et_cut))
-        print '   Best inclusive working point', optimal_point
-        signal_efficiencies_diff_graph.SetName(signal_efficiencies_diff_graph.GetName()+'_et_{}'.format(et_cut))
-        background_efficiencies_diff_graph.SetName(background_efficiencies_diff_graph.GetName()+'_et_{}'.format(et_cut))
-        optimal_points_graph.SetName(optimal_points_graph.GetName()+'_et_{}'.format(et_cut))
-        signal_efficiencies_diff_graph.Write() 
-        background_efficiencies_diff_graph.Write()
-        optimal_points_graph.Write()
-        signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points = optimize_background_rejection_vs_ieta(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target, cut='et>{}'.format(et_cut))
-        print '   Best working points vs |ieta|', hist2array(optimal_points)
-        for graph in signal_efficiencies_diff_graphs: 
-            graph.Write()
-        for graph in background_efficiencies_diff_graphs:
-            graph.Write()
-        for graph in optimal_points_graphs:
-            graph.Write()
-        optimal_points.SetName('optimal_points_vs_ieta')
-        optimal_points.Write()
+        #print '> Optimizing signal efficiency vs background rejection'
+        ##for et_cut in [10, 15, 20, 30, 40, 50]:
+        #et_cut = 20
+        #signal_efficiencies_diff_graph, background_efficiencies_diff_graph, optimal_points_graph, optimal_point = optimize_background_rejection(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target, cut='et>{}'.format(et_cut))
+        #print '   Best inclusive working point', optimal_point
+        #signal_efficiencies_diff_graph.SetName(signal_efficiencies_diff_graph.GetName()+'_et_{}'.format(et_cut))
+        #background_efficiencies_diff_graph.SetName(background_efficiencies_diff_graph.GetName()+'_et_{}'.format(et_cut))
+        #optimal_points_graph.SetName(optimal_points_graph.GetName()+'_et_{}'.format(et_cut))
+        #signal_efficiencies_diff_graph.Write() 
+        #background_efficiencies_diff_graph.Write()
+        #optimal_points_graph.Write()
+        #signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points = optimize_background_rejection_vs_ieta(effs, eg_isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputs, target, cut='et>{}'.format(et_cut))
+        #print '   Best working points vs |ieta|', hist2array(optimal_points)
+        #for graph in signal_efficiencies_diff_graphs: 
+            #graph.Write()
+        #for graph in background_efficiencies_diff_graphs:
+            #graph.Write()
+        #for graph in optimal_points_graphs:
+            #graph.Write()
+        #optimal_points.SetName('optimal_points_vs_ieta')
+        #optimal_points.Write()
         #optimal_point = 0.824074074074 
         #optimal_points_array = np.array([0.85000002,0.92777777,0.94629627,0.93222225,0.84851849,0.93444443,0.56777775])
         #optimal_points_array = np.array([0.85000002,0.92777777,0.94629627,0.93222225,0.90,0.85,0.56777775])
@@ -565,8 +591,8 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
         optimal_points = Hist(ieta_binning)
         array2hist(optimal_points_array, optimal_points)
         ################
-        optimal_points_low_array = np.array([0.80,0.80,0.80,0.80,0.80,0.80,0.70, 0.60])
-        optimal_points_high_array = np.array([0.92,0.95,0.95,0.95,0.95,0.95,0.97, 0.97])
+        optimal_points_low_array = np.array([0.80,0.80,0.80,0.80,0.80,0.75,0.80, 0.85])
+        optimal_points_high_array = np.array([0.92,0.95,0.95,0.95,0.95,0.95,0.95, 0.95])
         ieta_binning = [0.5, 3.5, 6.5, 9.5, 13.5, 18.5, 22.5, 25.5, 28.5]
         optimal_points_low = Hist(ieta_binning)
         optimal_points_high = Hist(ieta_binning)
@@ -606,9 +632,9 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
         # Retrieve data from tree
         et_compress_bins = [0,18,20,22,28,32,37,42,52,63,73,81,87,91,111,151,256] 
         ieta_compress_bins = [0,5,6,9,10,12,13,14,17,18,19,20,23,24,25,26,32]
-        ntt_compress_bins = [0,6,11,16,21,26,31,36,41,46,51,56,61,66,71,76,81,86,91,96,101,106,111,116,121,126,131,256]
+        ntt_compress_bins = [0,6,11,16,21,26,31,36,41,46,51,56,61,66,71,76,81,86,91,96,101,106,111,116,121,126,131,136,141,146,151,156,256]
         branches = ['abs(ieta)','ntt','et_raw']
-        data = root2array(signalfile, treename=signaltree, branches=branches)
+        data = root2array(signalfile, treename=signaltree, branches=branches, selection='et>0')
         data = data.view((np.float64, len(data.dtype.names))).astype(np.float32)
         for i,eg_isolation_relaxed_thomas in enumerate(eg_isolation_relaxed_thomas_list):
             print i
