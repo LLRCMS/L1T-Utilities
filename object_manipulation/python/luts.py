@@ -5,25 +5,24 @@ from rootpy.plotting import Hist2D, Hist3D
 
 
 
-def th3_to_txt(histo, output_file, output_bits, version, order=[0,1,2],xname='x', yname='y', zname='z'):
+def th3_to_txt(histo, output_file, output_bits, version, bin_order=[0,1,2],xname='x', yname='y', zname='z'):
     nbins = histo.nbins(0)*histo.nbins(1)*histo.nbins(2)
-    print nbins
-    adress_bits = int(m.log(nbins)*m.log(m.exp(1))/m.log(2))
-    header = '#<header> {0} {1} {2} </header>'.format(version,adress_bits, output_bits)
-    adress = 0
+    address_bits = int(m.log(nbins)*m.log(m.exp(1))/m.log(2))
+    header = '#<header> {0} {1} {2} </header>'.format(version,address_bits, output_bits)
+    address = 0
     with open(output_file, 'w') as output:
         print >>output, header
-        for bx in histo.bins_range(order[0]):
+        for bx in histo.bins_range(bin_order[0]):
             bs = [0,0,0]
-            bs[order[0]] = bx
-            for by in histo.bins_range(order[1]):
-                bs[order[1]] = by
-                for bz in histo.bins_range(order[2]):
-                    bs[order[2]] = bz
+            bs[bin_order[0]] = bx
+            for by in histo.bins_range(bin_order[1]):
+                bs[bin_order[1]] = by
+                for bz in histo.bins_range(bin_order[2]):
+                    bs[bin_order[2]] = bz
                     value = histo[bs[0],bs[1],bs[2]].value
                     if value>=2**output_bits: value = 2**output_bits-1
-                    print >>output, adress, int(value), '# {0}={1},{2}={3},{4}={5}'.format(xname,bx-1, yname,by-1, zname,bz-1)
-                    adress += 1
+                    print >>output, address, int(value), '# {0}={1},{2}={3},{4}={5}'.format(xname,bx-1, yname,by-1, zname,bz-1)
+                    address += 1
 
 
 # Only for 3D histograms for the moment

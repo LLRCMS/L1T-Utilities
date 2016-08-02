@@ -1,6 +1,7 @@
 from batch import batch_launcher
 from identification_isolation import quantile_regression, correlations, efficiency
-from object_conversions.conversion_to_histo import function2th2, function2th3, events2th3
+from identification_isolation.tests import test_efficiency
+from object_manipulation.conversion_to_histo import function2th2, function2th3, events2th3
 from utilities.root_utilities import graph2array
 from identification_isolation.cut_functions import RegressionWithInputMapping, CombinedWorkingPoints 
 import rate
@@ -64,101 +65,6 @@ def train_isolation_workingpoints(effs, inputfile, tree, outputdir, version, nam
     return eg_isolations
 
 
-
-
-
-
-
-
-def test_combined_isolation(isolation, inputfile, tree, inputnames=['abs(ieta)','ntt'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
-    # Retrieve data from tree
-    ninputs = len(inputnames)
-    branches = copy.deepcopy(inputnames)
-    branches.append(targetname)
-    branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
-    data = data.view((np.float64, len(data.dtype.names)))
-    inputs = data[:, range(ninputs)].astype(np.float32)
-    targets  = data[:, [ninputs]].astype(np.float32).ravel()
-    graphs = []
-    # Compute efficiencies for each variable
-    for i,variable in enumerate(variables):
-        xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
-        graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],isolation.value(x[0],x[0][:,[0]]))), function_inputs=(inputs,targets), xs=xs))
-        #graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],evaluate(isolation,x[0]))), function_inputs=(inputs,targets), xs=xs))
-        graphs[-1].SetName('combined_'+variable+'_test')
-    return graphs
-
-def test_combined_isolation_pt(isolation, inputfile, tree, inputnames=['abs(ieta)','ntt','et_raw'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
-    # Retrieve data from tree
-    ninputs = len(inputnames)
-    branches = copy.deepcopy(inputnames)
-    branches.append(targetname)
-    branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
-    data = data.view((np.float64, len(data.dtype.names)))
-    inputs = data[:, range(ninputs)].astype(np.float32)
-    targets  = data[:, [ninputs]].astype(np.float32).ravel()
-    graphs = []
-    # Compute efficiencies for each variable
-    for i,variable in enumerate(variables):
-        xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
-        graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],isolation.value(x[0][:,[0,1]],x[0][:,[0,2]]))), function_inputs=(inputs,targets), xs=xs))
-        #graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],evaluate(isolation,x[0]))), function_inputs=(inputs,targets), xs=xs))
-        graphs[-1].SetName('combined_pt_'+variable+'_test')
-    return graphs
-
-def test_combined_isolation_pt_compressed(isolation, inputfile, tree, inputnames=['abs(ieta)','ntt','et_raw'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
-    # Retrieve data from tree
-    ninputs = len(inputnames)
-    branches = copy.deepcopy(inputnames)
-    branches.append(targetname)
-    branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
-    data = data.view((np.float64, len(data.dtype.names)))
-    inputs = data[:, range(ninputs)].astype(np.float32)
-    targets  = data[:, [ninputs]].astype(np.float32).ravel()
-    graphs = []
-    # Compute efficiencies for each variable
-    for i,variable in enumerate(variables):
-        xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
-        graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: np.less(x[1],evaluate(isolation, x[0]))), function_inputs=(inputs,targets), xs=xs))
-        graphs[-1].SetName('combined_pt_compressed_'+variable+'_test')
-    return graphs
-
-def test_current_isolation(inputfile, tree, iso = 'iso_pass', variables=['offl_eta','offl_pt', 'rho', 'npv']):
-    # Retrieve data from tree
-    branches = [iso]
-    branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
-    data = data.view((np.float64, len(data.dtype.names)))
-    iso = data[:, [0]].astype(np.int32).ravel()
-    graphs = []
-    # Compute efficiencies for each variable
-    for i,variable in enumerate(variables):
-        xs  = data[:, [1+i]].astype(np.float32).ravel()
-        graphs.append(efficiency.efficiency_graph(pass_function=(lambda x: x>0), function_inputs=iso, xs=xs))
-        graphs[-1].SetName('current_'+variable+'_test')
-    return graphs
-
-def test_isolation_workingpoints(effs, isolations, inputfile, tree, inputnames=['abs(ieta)','ntt'], targetname='iso', variables=['offl_eta','offl_pt', 'rho', 'npv']):
-    # Retrieve data from tree
-    ninputs = len(inputnames)
-    branches = copy.deepcopy(inputnames)
-    branches.append(targetname)
-    branches.extend(variables)
-    data = root2array(inputfile, treename=tree, branches=branches, selection='et>0')
-    data = data.view((np.float64, len(data.dtype.names)))
-    inputs = data[:, range(ninputs)].astype(np.float32)
-    targets  = data[:, [ninputs]].astype(np.float32).ravel()
-    graphs = []
-    # Compute efficiencies for each working point and each variable
-    for isolation in isolations:
-        for i,variable in enumerate(variables):
-            xs  = data[:, [ninputs+1+i]].astype(np.float32).ravel()
-            graphs.append(efficiency.efficiency_graph(pass_function=(lambda x:np.less(x[1],isolation.predict(x[0]))), function_inputs=(inputs,targets), xs=xs))
-            graphs[-1].SetName(isolation.name+'_'+variable+'_test')
-    return graphs
 
 def find_best_working_point(effs, signal_efficiencies, background_efficiencies, signal_probabilities, background_probabilities):
     # Compute ratios of bacground and signal probabilities and truncate the array
@@ -459,10 +365,17 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
             histo.SetName(name+'_'+str(eff))
             histo.Write()
         # Test isolation cuts vs offline variables
-        #print '> Checking efficiencies vs offline variables'
+        print '> Checking efficiencies vs offline variables'
         #graphs = test_isolation_workingpoints(effs, eg_isolations, signalfile, signaltree, inputs, target)
-        #for graph in graphs:
-            #graph.Write()
+        graphs = test_efficiency(functions=[(lambda x,isolation=iso:np.less(x[:,[len(inputs)]].ravel(),isolation.predict(x[:,range(len(inputs))]))) for iso in eg_isolations], \
+                                 function_inputs=inputs+[target],\
+                                 variables=['offl_eta','offl_pt', 'rho', 'npv'],\
+                                 inputfile=signalfile,\
+                                 tree=signaltree,\
+                                 selection='et>0'\
+                                )
+        for graph in graphs:
+            graph.Write()
         # Optimize signal efficiency vs background rejection
         #print '> Optimizing signal efficiency vs background rejection'
         ##for et_cut in [10, 15, 20, 30, 40, 50]:
@@ -518,15 +431,22 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
         points_vs_pt_ieta_thomas_list = [relax_efficiency_vs_pt_2(optimal_points_low, optimal_points_high, threshold_low=56., threshold_high=80., eff_min=0.5, max_et=max_et) for max_et in [110.,120.,130.]]
         eg_isolation_relaxed_thomas_list = [CombinedWorkingPoints(np.append(effs,[1.]), [iso.predict for iso in eg_isolations]+[lambda x:np.full(x.shape[0],9999.)], points_vs_pt_ieta_thomas) for points_vs_pt_ieta_thomas in points_vs_pt_ieta_thomas_list]
         print '> Testing combined iso cuts'
+        #graphs_comb = test_efficiency(function=(lambda x: np.less(x[:,[len(inputs)]],combined_cuts.value(x[:,range(len(inputs))],x[:,[0]]))), \
+                                      #function_inputs=inputs+[target],\
+                                      #variables=['offl_eta','offl_pt', 'rho', 'npv'],\
+                                      #inputfile=signalfile,\
+                                      #tree=signaltree,\
+                                      #selection='et<80 & et>0'\
+                                     #)
         #graphs_comb = test_combined_isolation(combined_cuts_histo, signalfile, signaltree, inputs, target)
         #graphs_comb = test_combined_isolation(combined_cuts, signalfile, signaltree, inputs, target)
         #for graph in graphs_comb:
             #graph.Write()
         print '> Testing combined iso cuts vs pt'
         ###rate_optimal(eg_isolations_relaxed, backgroundfile, backgroundtree)
-        graphs_iso_current = test_current_isolation(signalfile, signaltree)
-        for graph in graphs_iso_current:
-            graph.Write()
+        #graphs_iso_current = test_current_isolation(signalfile, signaltree)
+        #for graph in graphs_iso_current:
+            #graph.Write()
         #for i,eg_isolation_relaxed_thomas in enumerate(eg_isolation_relaxed_thomas_list):
             #print i
             #rates(eg_isolation_relaxed_thomas, backgroundfile, backgroundtree)
@@ -548,7 +468,14 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
             eg_isolation_compressed = events2th3(data, iso_cuts, (ieta_compress_bins,), (ntt_compress_bins,), (et_compress_bins,))
             eg_isolation_compressed.SetName('isolation_compressed_{}'.format(i))
             eg_isolation_compressed.Write()
-            graphs_compressed = test_combined_isolation_pt_compressed(eg_isolation_compressed, signalfile, signaltree, inputs+['et_raw'], target, variables=['offl_eta','offl_pt', 'rho'])
+            #graphs_compressed = test_combined_isolation_pt_compressed(eg_isolation_compressed, signalfile, signaltree, inputs+['et_raw'], target, variables=['offl_eta','offl_pt', 'rho'])
+            graphs_compressed = test_efficiency(functions=(lambda x: np.less(x[:,[len(inputs)+1]].ravel(),evaluate(eg_isolation_compressed, x[:,range(len(inputs)+1)]))), \
+                                      function_inputs=inputs+['et_raw',target],\
+                                      variables=['offl_eta','offl_pt', 'rho', 'npv'],\
+                                      inputfile=signalfile,\
+                                      tree=signaltree,\
+                                      selection='et>0'\
+                                     )
             for graph in graphs_compressed:
                 graph.SetName(graph.GetName()+'_{}'.format(i))
                 graph.Write()
