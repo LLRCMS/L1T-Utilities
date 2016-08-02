@@ -64,41 +64,9 @@ def train_isolation_workingpoints(effs, inputfile, tree, outputdir, version, nam
     return eg_isolations
 
 
-def extrapolate_ntt(histo):
-    for beta in histo.bins_range(0):
-        for bet in histo.bins_range(2):
-            x = []
-            y = []
-            maxi = -1
-            # compute extrapolation
-            for bntt in histo.bins_range(1):
-                ntt = histo.GetYaxis().GetBinCenter(bntt)
-                value = histo[beta,bntt,bet].value
-                if value>0 and value<256:
-                    x.append(ntt)
-                    y.append(value)
-                if value>maxi:
-                    maxi = value
-            if len(x)>0:
-                fit = np.poly1d(np.polyfit(x,y,1))
-            # apply extrapolation
-            for bntt in histo.bins_range(1):
-                ntt = histo.GetYaxis().GetBinCenter(bntt)
-                if len(x)>=2 and ntt>max(x):
-                    histo[beta,bntt,bet].value = fit(ntt)
-                elif len(x)==1 and ntt>max(x):
-                    histo[beta,bntt,bet].value = y[0]
-                elif len(x)==0:
-                    histo[beta,bntt,bet].value = 9999.
 
-#def fix_ntt_holes(histo):
-    #for beta in histo.bins_range(0):
-        #for bet in histo.bins_range(2):
-            #values = []
-            ## compute extrapolation
-            #for bntt in histo.bins_range(1):
-                #values.append(histo[beta,bntt,bet].value)
-                
+
+
 
 
 
@@ -285,7 +253,7 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
     histo_signal = Hist(ieta_binning)
     fill_hist(histo_signal, xs)
     #histo_signal.Scale(1./histo_signal.integral(overflow=True))
-    # signal_efficiencies is a 2D array 
+    # signal_efficiencies is a 2D array
     # The first dimension corresponds to different ieta values
     # The second dimension corresponds to different working points
     signal_efficiencies = [graph2array(efficiency.efficiency_graph(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets), xs=xs, bins=ieta_binning))[:,[1]].ravel() for iso in isolations]
@@ -303,7 +271,7 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
     histo_background = Hist(ieta_binning)
     fill_hist(histo_background, xs)
     #histo_background.Scale(1./histo_background.integral(overflow=True))
-    # background_efficiencies is a 2D array 
+    # background_efficiencies is a 2D array
     # The first dimension corresponds to different ieta values
     # The second dimension corresponds to different working points
     background_efficiencies = [graph2array(efficiency.efficiency_graph(pass_function=(lambda x:np.less(x[1],iso.predict(x[0]))), function_inputs=(inputs,targets), xs=xs, bins=ieta_binning))[:,[1]].ravel() for iso in isolations]
@@ -316,7 +284,7 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
     for i,(signal_effs,background_effs) in enumerate(zip(signal_efficiencies, background_efficiencies)):
         # Compute the probability of signal in this ieta bin for the different efficiency points
         # It is assumed that the cut is applied only in this bin, all the other bins keep the same number of entries
-        n_i = histo_signal[i+1].value 
+        n_i = histo_signal[i+1].value
         n_tot = histo_signal.integral(overflow=True)
         proba_signal = np.array([n_i*eff/(n_tot-n_i*(1.-eff)) for eff in signal_effs])
         # Same as above, but for background
