@@ -1,8 +1,8 @@
 from batch import batch_launcher
 from identification_isolation import quantile_regression, correlations, efficiency
 from object_conversions.conversion_to_histo import function2th2, function2th3, events2th3
-from utilities.numpy_utilities import find_closest
 from utilities.root_utilities import graph2array
+from identification_isolation.cut_functions import RegressionWithInputMapping, CombinedWorkingPoints 
 import rate
 
 import copy
@@ -15,69 +15,6 @@ from sklearn.externals import joblib
 from rootpy.plotting import Hist, Hist2D, Graph
 from rootpy.io import root_open
 from root_numpy import root2array, hist2array, array2hist, fill_graph, fill_hist, evaluate
-
-
-
-
-# Compound of multivariate isolation cuts and input mappings
-class IsolationCuts:
-    def __init__(self, iso_regression, input_mappings, name='isolation'):
-        self.name = name
-        self.iso_regression = iso_regression
-        # dictionary input index -> function to be applied on inputs
-        self.input_mappings = input_mappings
-        # Vectorize the functions such that they can take arrays as input
-        for index, mapping in self.input_mappings.items():
-            self.input_mappings[index] = np.vectorize(mapping)
-
-    def predict(self, values):
-        #print 'In IsolationCuts.predict()'
-        # Apply input mappings
-        mapped_inputs = np.array(values, dtype=np.float64)
-        for index,mapping in self.input_mappings.items():
-            # Apply mapping on column 'index'
-            mapped_inputs_i = mapping(mapped_inputs[:,[index]])
-            # Replace column 'index' with mapped inputs
-            mapped_inputs = np.delete(mapped_inputs, index, axis=1)
-            mapped_inputs = np.insert(mapped_inputs, [index], mapped_inputs_i, axis=1)
-        # Apply iso regression on mapped inputs
-        output = self.iso_regression.predict(mapped_inputs)
-        #print 'Out IsolationCuts.predict()'
-        return output
-
-
-class IsolationCombinedCuts:
-    # TODO: To be improved
-    def __init__(self, working_points, functions, efficiency_map):
-        efficiency_array = hist2array(efficiency_map)
-        working_points_indices = find_closest(working_points, efficiency_array)
-        self.function_index_map = efficiency_map.empty_clone()
-        array2hist(working_points_indices, self.function_index_map)
-        self.indices = working_points_indices
-        self.functions = functions
-        self.dim = len(efficiency_array.shape)
-
-    def value(self, inputs, map_positions):
-        # remove overflows (overwrite with a value just below the histogram boundary)
-        upper_bounds = [self.function_index_map.bounds(axis)[1]-1e-3 for axis in range(len(self.function_index_map.axes))]
-        map_positions_no_overflow = np.apply_along_axis(lambda x:np.minimum(x,upper_bounds), 1, map_positions)
-        # evaluate of a 1D histograms take flatten array as input
-        if self.dim==1: map_positions_no_overflow = map_positions_no_overflow.ravel()
-        indices = evaluate(self.function_index_map, map_positions_no_overflow).astype(np.int32)
-        # Compute isolation for all used working points
-        outputs = []
-        for i,function in enumerate(self.functions):
-            if i in self.indices: outputs.append(function(inputs))
-            else: outputs.append(np.array([]))
-        #output = [self.functions[index]([input]) for index,input in zip(indices,inputs)]
-        # Associate the correct working point for each entry
-        output = np.zeros(len(indices))
-        for i,index in enumerate(indices):
-            output[i] = outputs[index][i]
-        return output
-
-
-
 
 
 
@@ -106,11 +43,11 @@ def train_isolation_workingpoints(effs, inputfile, tree, outputdir, version, nam
     regression_inputs = copy.deepcopy(inputs)
     regression_inputs[1] = pileupref
     parameters = iso_parameters(inputfile, tree, name, regression_inputs, target, effs, test)
-    batch_launcher.main(workingdir=outputdir,
-                        exe='python {}/identification_isolation/python/quantile_regression.py'.format(os.environ['L1TSTUDIES_BASE']),
-                        pars=parameters)
-    print '> Waiting batch jobs to finish...'
-    batch_launcher.wait_jobs(workingdir, wait=5)
+    #batch_launcher.main(workingdir=outputdir,
+                        #exe='python {}/identification_isolation/python/quantile_regression.py'.format(os.environ['L1TSTUDIES_BASE']),
+                        #pars=parameters)
+    #print '> Waiting batch jobs to finish...'
+    #batch_launcher.wait_jobs(workingdir, wait=5)
     print '  ... Batch jobs done'
     print '> Applying {0}->{1} map'.format(pileupref, inputs[1])
     eg_isolations = []
@@ -122,7 +59,7 @@ def train_isolation_workingpoints(effs, inputfile, tree, outputdir, version, nam
         # Apply rho->ntt linear mapping on isolation regression
         a = pu_regression.intercept_
         b = pu_regression.coef_[0]
-        eg_isolation_cuts = IsolationCuts(name='eg_iso_'+pars['eff'], iso_regression=iso_regression, input_mappings={1:(lambda x:max(0.,(x-a)/b))})
+        eg_isolation_cuts = RegressionWithInputMapping(name='eg_iso_'+pars['eff'], iso_regression=iso_regression, input_mappings={1:(lambda x:max(0.,(x-a)/b))})
         eg_isolations.append(eg_isolation_cuts)
     return eg_isolations
 
@@ -429,7 +366,7 @@ def isolations_vs_threshold(effs, isolations, optimal_points):
     isolations_relaxed = {}
     for threshold in range(20, 108, 2):
         points_vs_pt_ieta = relax_efficiency_vs_pt(optimal_points, threshold)
-        combined_cuts_pt = IsolationCombinedCuts(effs, isolations, points_vs_pt_ieta)
+        combined_cuts_pt = CombinedWorkingPoints(effs, isolations, points_vs_pt_ieta)
         isolations_relaxed[threshold] = combined_cuts_pt
     return isolations_relaxed
 
@@ -543,6 +480,7 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
     #version = 'v_6_2016-07-19' # RunD
     #version = 'v_7_2016-07-21' # V3
     #version = 'v_8_2016-07-29' # V3 with et_raw fix
+    version = 'v_10_2016-08-01'
     workingdir = outputdir+'/'+version
     # Train isolation cuts
     eg_isolations = train_isolation_workingpoints(effs, signalfile, signaltree, outputdir, version, name, test, inputs, target, pileupref)
@@ -599,7 +537,7 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
         array2hist(optimal_points_low_array, optimal_points_low)
         array2hist(optimal_points_high_array, optimal_points_high)
         ################
-        combined_cuts = IsolationCombinedCuts(effs, [iso.predict for iso in eg_isolations], optimal_points)
+        combined_cuts = CombinedWorkingPoints(effs, [iso.predict for iso in eg_isolations], optimal_points)
         #combined_cuts_histo = function2th2(lambda x: combined_cuts.value(x,x[:,[0]].ravel()), quantile_regression.binning[inputs[0]], quantile_regression.binning[inputs[1]])
         combined_cuts_histo = function2th2(lambda x: combined_cuts.value(x,x[:,[0]]), quantile_regression.binning[inputs[0]], quantile_regression.binning[inputs[1]])
         print '> Applying pt relaxation'
@@ -610,7 +548,7 @@ def main(signalfile, signaltree, backgroundfile, backgroundtree, outputdir, name
         #eg_isolations_relaxed = isolations_vs_threshold(np.append(effs,[1.]), [iso.predict for iso in eg_isolations]+[lambda x:np.full(x.shape[0],9999.)], optimal_points)
         #points_vs_pt_ieta_thomas_list = [relax_efficiency_vs_pt(optimal_points, threshold=th) for th in [40.,50.,60.,70.]]
         points_vs_pt_ieta_thomas_list = [relax_efficiency_vs_pt_2(optimal_points_low, optimal_points_high, threshold_low=56., threshold_high=80., eff_min=0.5, max_et=max_et) for max_et in [110.,120.,130.]]
-        eg_isolation_relaxed_thomas_list = [IsolationCombinedCuts(np.append(effs,[1.]), [iso.predict for iso in eg_isolations]+[lambda x:np.full(x.shape[0],9999.)], points_vs_pt_ieta_thomas) for points_vs_pt_ieta_thomas in points_vs_pt_ieta_thomas_list]
+        eg_isolation_relaxed_thomas_list = [CombinedWorkingPoints(np.append(effs,[1.]), [iso.predict for iso in eg_isolations]+[lambda x:np.full(x.shape[0],9999.)], points_vs_pt_ieta_thomas) for points_vs_pt_ieta_thomas in points_vs_pt_ieta_thomas_list]
         print '> Testing combined iso cuts'
         #graphs_comb = test_combined_isolation(combined_cuts_histo, signalfile, signaltree, inputs, target)
         #graphs_comb = test_combined_isolation(combined_cuts, signalfile, signaltree, inputs, target)
