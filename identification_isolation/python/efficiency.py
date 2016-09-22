@@ -37,7 +37,7 @@ def efficiency_graph(pass_function, function_inputs, xs, bins=None, error=0.005)
         percentiles = [0.,100.]
         if k>0: 
             nbins = (error*n)**2/k / (1-k/n)
-            # Compute the bin boundaries with the same number of events in all bins
+            # Compute the bin bounaries with the same number of events in all bins
             percentiles = np.arange(0., 100., 100./nbins)
             percentiles[-1] = 100.
         bins = np.unique(np.percentile(xs, percentiles))

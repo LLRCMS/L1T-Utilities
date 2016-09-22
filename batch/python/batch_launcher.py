@@ -17,6 +17,18 @@ def job_version(directory):
         version_date = "v_"+str(version_max+1)+"_"+str(date.today())
     return version_date
 
+def latest_version(directory):
+    version_date = ''
+    if os.path.isdir(directory):
+        dirs= [f for f in os.listdir(directory) if os.path.isdir(os.path.join(directory,f)) and f[:2]=='v_']
+        version_max = 0
+        for d in dirs:
+            version = int(d.split("_")[1])
+            if version > version_max:
+                version_max = version
+                version_date = d
+    return version_date
+
 def wait_jobs(directory, wait=15):
     jobnames = [os.path.splitext(os.path.basename(f))[0] for f in glob.glob(directory+'/jobs/*.sub')]
     while True:
