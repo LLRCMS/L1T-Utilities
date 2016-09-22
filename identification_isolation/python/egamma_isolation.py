@@ -75,7 +75,7 @@ def train_isolation_workingpoints(steps, effs, inputfile, tree, outputdir, versi
 
 
 def find_best_working_point(effs, signal_efficiencies, background_efficiencies, signal_probabilities, background_probabilities):
-    # Compute ratios of bacground and signal probabilities and truncate the array
+    # Compute ratios of background and signal probabilities and truncate the array
     # to match the gradient array size
     probability_ratios = background_probabilities/signal_probabilities
     probability_ratios = probability_ratios[1:]
@@ -85,6 +85,7 @@ def find_best_working_point(effs, signal_efficiencies, background_efficiencies, 
     background_efficiencies_diff = np.ediff1d(background_efficiencies)
     signal_efficiencies_diff = np.divide(signal_efficiencies_diff, effs_diff)
     background_efficiencies_diff = np.divide(background_efficiencies_diff, effs_diff)
+    # Apply averaging over 3 or 2 values in order to smooth the gradients
     signal_efficiencies_diff_3 = np.convolve(signal_efficiencies_diff, np.repeat(1.0, 3.)/3., 'valid')
     signal_efficiencies_diff_2 = np.convolve(signal_efficiencies_diff, np.repeat(1.0, 2.)/2., 'valid')
     signal_efficiencies_diff = np.append(signal_efficiencies_diff_3, [signal_efficiencies_diff_2[-1],signal_efficiencies_diff[-1]])
@@ -122,6 +123,7 @@ def find_best_working_point(effs, signal_efficiencies, background_efficiencies, 
 
 
 
+# Global optimization
 def optimize_background_rejection(effs, isolations, signalfile, signaltree, backgroundfile, backgroundtree, inputnames=['abs(ieta)','ntt'], targetname='iso', cut='et>10'):
     # Compute signal efficiencies
     ninputs = len(inputnames)
@@ -213,6 +215,7 @@ def optimize_background_rejection_vs_ieta(effs, isolations, signalfile, signaltr
     return signal_efficiencies_diff_graphs, background_efficiencies_diff_graphs, optimal_points_graphs, optimal_points_histo
 
 
+# TODO: Create single function to relax efficiency according to different functional forms
 def single_slope_relaxation_vs_pt(optimal_points_vs_ieta, threshold, eff_min=0.4,max_et=110):
     points_vs_ieta_pt = Hist2D(np.array(optimal_points_vs_ieta.GetXaxis().GetXbins()), 200, 0.5, 200.5)
     for bx in points_vs_ieta_pt.bins_range(0):
@@ -243,6 +246,7 @@ def double_slope_relaxation_vs_pt(optimal_points_vs_ieta_low, optimal_points_vs_
 
 def main(parameters):
     # Compute isolation cuts for efficiencies from 0.2 to 1 with smaller steps for larger efficiencies
+    # TODO: put this in parameters
     effs = np.arange(0.2,0.5,0.05)
     effs = np.concatenate((effs,np.arange(0.5,0.85,0.02)))
     effs = np.concatenate((effs,np.arange(0.85,0.999,0.01)))
@@ -288,14 +292,17 @@ def main(parameters):
             print '> Checking efficiencies vs offline variables'
             graphs = test_efficiency(functions=[(lambda x,isolation=iso:np.less(x[:,[len(inputs)]].ravel(),isolation.predict(x[:,range(len(inputs))]))) for iso in eg_isolations], \
                                      function_inputs=inputs+[target],\
+                                     # TODO: define these variables in parameters
                                      variables=['offl_eta','offl_pt', 'rho', 'npv'],\
                                      inputfile=parameters.signal_file,\
                                      tree=parameters.signal_tree,\
+                                     # TODO: Define the selection in parameters
                                      selection='et>0'\
                                     )
             for graph in graphs:
                 graph.Write()
         print '> Applying eta/et efficiency shape'
+        # TODO: Add the possibility to perform automatic optimization of the efficiency shape
         eg_isolation_eta_et = CombinedWorkingPoints(np.append(effs,[1.]),
                                                     [iso.predict for iso in eg_isolations]+[lambda x:np.full(x.shape[0],9999.)],
                                                     parameters.eta_pt_optimization.eta_pt_efficiency_shapes)
@@ -308,6 +315,7 @@ def main(parameters):
         data = root2array(parameters.signal_file,
                           treename=parameters.signal_tree,
                           branches=branches,
+                          # TODO: Define the selection in parameters
                           selection='et>0')
         data = data.view((np.float64, len(data.dtype.names))).astype(np.float32)
         iso_cuts = eg_isolation_eta_et.value(data[:,[0,1]],data[:,[0,2]])
@@ -319,9 +327,11 @@ def main(parameters):
         eg_isolation_compressed.Write()
         graphs_compressed = test_efficiency(functions=(lambda x: np.less(x[:,[3]].ravel(),evaluate(eg_isolation_compressed, x[:,range(3)]))), \
                                       function_inputs=branches+[parameters.variables.iso],\
+                                     # TODO: define these variables in parameters
                                       variables=['offl_eta','offl_pt', 'rho', 'npv'],\
                                       inputfile=parameters.signal_file,\
                                       tree=parameters.signal_tree,\
+                                     # TODO: Define the selection in parameters
                                       selection='et>0'\
                                      )
         for graph in graphs_compressed:
