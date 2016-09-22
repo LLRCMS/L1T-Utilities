@@ -1,8 +1,7 @@
 from batch import batch_launcher
 from identification_isolation import quantile_regression, correlations, efficiency
 from identification_isolation.tests import test_efficiency
-from object_manipulation.conversion_to_histo import function2th2, function2th3, events2th3
-from utilities.root_utilities import graph2array
+from utilities.root_utilities import function2th2, function2th3, events2th3, graph2array
 from identification_isolation.cut_functions import RegressionWithInputMapping, CombinedWorkingPoints 
 import rate
 

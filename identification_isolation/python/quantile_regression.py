@@ -9,7 +9,7 @@ from sklearn.externals import joblib
 from sklearn import cross_validation
 
 
-from object_manipulation.conversion_to_histo import function2th2
+from utilities.root_utilities import function2th2
 from identification_isolation import efficiency
 
 from rootpy.plotting import Hist2D, Hist3D
